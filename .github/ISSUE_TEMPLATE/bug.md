@@ -19,7 +19,7 @@ about: Report a bug to help us improve Shell-operator
 3. ...
 
 **Environment**:
-- Shell-operator version:
+- Kube-client version:
 - Kubernetes version:
 - Installation type (kubectl apply, helm chart, etc.):
 
