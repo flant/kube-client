@@ -1,0 +1,12 @@
+.github
+docs
+examples
+scripts
+test
+
+.git
+.gitignore
+Dockerfile
+LICENSE
+*.md
+*.png
