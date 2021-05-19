@@ -22,7 +22,7 @@ type Cluster struct {
 	Discovery *fakediscovery.FakeDiscovery
 }
 
-func NewFakeCluster(ver ClusterVersion) *Cluster {
+func NewCluster(ver ClusterVersion) *Cluster {
 	fc := &Cluster{}
 	fc.Client = client.NewFake()
 
