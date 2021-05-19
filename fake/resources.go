@@ -3,7 +3,7 @@ package fake
 // set current kube-context to cluster with necessary version and run go generate
 // it will create file with desired version and resources
 // you can use existing cluster or kind/minikube/microk8s/etc
-// go:generate ./scripts/resources_generator
+//go:generate ./scripts/resources_generator
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	corev1 "k8s.io/api/core/v1"
+	"github.com/flant/kube-client/client"
+	"github.com/flant/kube-client/manifest"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -13,8 +14,7 @@ import (
 	fakediscovery "k8s.io/client-go/discovery/fake"
 	"k8s.io/client-go/kubernetes/scheme"
 
-	"github.com/flant/kube-client/client"
-	"github.com/flant/kube-client/manifest"
+	corev1 "k8s.io/api/core/v1"
 )
 
 type Cluster struct {
@@ -24,6 +24,9 @@ type Cluster struct {
 }
 
 func NewCluster(ver ClusterVersion) *Cluster {
+	if ver == "" {
+		ver = ClusterVersionV119
+	}
 	fc := &Cluster{}
 	fc.Client = client.NewFake()
 
@@ -49,7 +52,7 @@ func (fc *Cluster) RegisterCRD(group, version, kind string, namespaced bool) {
 	scheme.Scheme.AddKnownTypeWithName(schema.GroupVersionKind{Group: group, Version: version, Kind: kind}, &unstructured.Unstructured{})
 	newResource := metav1.APIResource{
 		Kind:       kind,
-		Name:       strings.ToLower(kind) + "s",
+		Name:       Pluralize(kind),
 		Verbs:      metav1.Verbs{"create", "delete", "deletecollection", "get", "list", "patch", "update", "watch"},
 		Group:      group,
 		Version:    version,
@@ -79,7 +82,7 @@ func (fc *Cluster) MustFindGVR(apiVersion, kind string) *schema.GroupVersionReso
 	return findGvr(fc.Discovery.Resources, apiVersion, kind)
 }
 
-func (fc *Cluster) CreateSimpleNamespaced(ns, kind, name string) {
+func (fc *Cluster) CreateSimpleNamespaced(ns string, kind string, name string) {
 	fc.CreateNs(ns)
 
 	gvr := fc.MustFindGVR("", kind)
@@ -91,7 +94,7 @@ func (fc *Cluster) CreateSimpleNamespaced(ns, kind, name string) {
 	}
 }
 
-func (fc *Cluster) DeleteSimpleNamespaced(ns, kind, name string) {
+func (fc *Cluster) DeleteSimpleNamespaced(ns string, kind string, name string) {
 	gvr := fc.MustFindGVR("", kind)
 	err := fc.Client.Dynamic().Resource(*gvr).Namespace(ns).Delete(context.TODO(), name, metav1.DeleteOptions{})
 	if err != nil {
@@ -155,4 +158,28 @@ func findGvr(resources []*metav1.APIResourceList, apiVersion, kindOrName string)
 		}
 	}
 	return nil
+}
+
+// Pluralize simplest way to make plural form (like resource) from object Kind
+// ex: User -> users
+//     Prometheus -> prometheuses
+//     NetworkPolicy -> netwrokpolicies
+func Pluralize(kind string) string {
+	if kind == "" {
+		return kind
+	}
+
+	kind = strings.ToLower(kind)
+
+	// maybe we dont need more complex pluralizer here
+	// but if we do, can take smth like https://github.com/gertd/go-pluralize
+	if strings.HasSuffix(kind, "s") {
+		return kind + "s"
+	}
+
+	if strings.HasSuffix(kind, "cy") {
+		return strings.TrimSuffix(kind, "y") + "ies"
+	}
+
+	return kind + "s"
 }
