@@ -343,7 +343,6 @@ func (c *client) APIResourceList(apiVersion string) (lists []*metav1.APIResource
 		default:
 			return c.discovery().ServerPreferredResources()
 		}
-
 	} else {
 		// Get only resources for desired group and version
 		gv, err := schema.ParseGroupVersion(apiVersion)

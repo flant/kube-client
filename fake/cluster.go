@@ -5,8 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/flant/kube-client/client"
-	"github.com/flant/kube-client/manifest"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -14,7 +13,8 @@ import (
 	fakediscovery "k8s.io/client-go/discovery/fake"
 	"k8s.io/client-go/kubernetes/scheme"
 
-	corev1 "k8s.io/api/core/v1"
+	"github.com/flant/kube-client/client"
+	"github.com/flant/kube-client/manifest"
 )
 
 type Cluster struct {
@@ -82,7 +82,7 @@ func (fc *Cluster) MustFindGVR(apiVersion, kind string) *schema.GroupVersionReso
 	return findGvr(fc.Discovery.Resources, apiVersion, kind)
 }
 
-func (fc *Cluster) CreateSimpleNamespaced(ns string, kind string, name string) {
+func (fc *Cluster) CreateSimpleNamespaced(ns, kind, name string) {
 	fc.CreateNs(ns)
 
 	gvr := fc.MustFindGVR("", kind)
@@ -94,7 +94,7 @@ func (fc *Cluster) CreateSimpleNamespaced(ns string, kind string, name string) {
 	}
 }
 
-func (fc *Cluster) DeleteSimpleNamespaced(ns string, kind string, name string) {
+func (fc *Cluster) DeleteSimpleNamespaced(ns, kind, name string) {
 	gvr := fc.MustFindGVR("", kind)
 	err := fc.Client.Dynamic().Resource(*gvr).Namespace(ns).Delete(context.TODO(), name, metav1.DeleteOptions{})
 	if err != nil {
