@@ -63,18 +63,14 @@ func New() Client {
 	return &client{}
 }
 
-func NewEmptyFake() Client {
-	return NewFake(nil)
-}
-
-func NewFake(gvrToListKind map[schema.GroupVersionResource]string) Client {
+func NewFake() Client {
 	scheme := runtime.NewScheme()
 	objs := []runtime.Object{}
 
 	return &client{
 		Interface:        fake.NewSimpleClientset(),
 		defaultNamespace: "default",
-		dynamicClient:    fakedynamic.NewSimpleDynamicClientWithCustomListKinds(scheme, gvrToListKind, objs...),
+		dynamicClient:    fakedynamic.NewSimpleDynamicClient(scheme, objs...),
 	}
 }
 

@@ -28,23 +28,10 @@ func NewCluster(ver ClusterVersion) *Cluster {
 		ver = ClusterVersionV119
 	}
 
-	resourcesForVersion := ClusterResources(ver)
-
 	// Client
 
-	gvrToListKind := make(map[schema.GroupVersionResource]string)
-	for _, gr := range resourcesForVersion {
-		for _, res := range gr.APIResources {
-			gvr := schema.GroupVersionResource{
-				Group:    res.Group,
-				Version:  res.Version,
-				Resource: res.Name,
-			}
-			gvrToListKind[gvr] = res.Kind + "List"
-		}
-	}
 	fc := &Cluster{}
-	fc.Client = client.NewFake(gvrToListKind)
+	fc.Client = client.NewFake()
 
 	// Discovery
 
@@ -54,7 +41,7 @@ func NewCluster(ver ClusterVersion) *Cluster {
 		panic("couldn't convert Discovery() to *FakeDiscovery")
 	}
 	fc.Discovery.FakedServerVersion = &version.Info{GitCommit: ver.String(), Major: ver.Major(), Minor: ver.Minor()}
-	fc.Discovery.Resources = resourcesForVersion
+	fc.Discovery.Resources = ClusterResources(ver)
 
 	return fc
 }
