@@ -1,6 +1,7 @@
 package fake
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -40,7 +41,7 @@ func NewCluster(ver ClusterVersion) *Cluster {
 func (fc *Cluster) CreateNs(ns string) {
 	nsObj := &corev1.Namespace{}
 	nsObj.Name = ns
-	_, _ = fc.Client.CoreV1().Namespaces().Create(nsObj)
+	_, _ = fc.Client.CoreV1().Namespaces().Create(context.TODO(), nsObj, metav1.CreateOptions{})
 }
 
 // RegisterCRD registers custom resources for the cluster
@@ -84,7 +85,7 @@ func (fc *Cluster) CreateSimpleNamespaced(ns, kind, name string) {
 	gvr := fc.MustFindGVR("", kind)
 	obj := manifest.New(gvr.GroupVersion().String(), kind, name).Unstructured()
 
-	_, err := fc.Client.Dynamic().Resource(*gvr).Namespace(ns).Create(obj, metav1.CreateOptions{})
+	_, err := fc.Client.Dynamic().Resource(*gvr).Namespace(ns).Create(context.TODO(), obj, metav1.CreateOptions{})
 	if err != nil {
 		panic(err)
 	}
@@ -92,7 +93,7 @@ func (fc *Cluster) CreateSimpleNamespaced(ns, kind, name string) {
 
 func (fc *Cluster) DeleteSimpleNamespaced(ns, kind, name string) {
 	gvr := fc.MustFindGVR("", kind)
-	err := fc.Client.Dynamic().Resource(*gvr).Namespace(ns).Delete(name, &metav1.DeleteOptions{})
+	err := fc.Client.Dynamic().Resource(*gvr).Namespace(ns).Delete(context.TODO(), name, metav1.DeleteOptions{})
 	if err != nil {
 		panic(err)
 	}
@@ -103,7 +104,7 @@ func (fc *Cluster) Create(ns string, m manifest.Manifest) error {
 	if err != nil {
 		return err
 	}
-	_, err = fc.Client.Dynamic().Resource(*gvr).Namespace(m.Namespace(ns)).Create(m.Unstructured(), metav1.CreateOptions{})
+	_, err = fc.Client.Dynamic().Resource(*gvr).Namespace(m.Namespace(ns)).Create(context.TODO(), m.Unstructured(), metav1.CreateOptions{})
 	if err != nil {
 		return fmt.Errorf("creating object failed: %v", err)
 	}
@@ -116,7 +117,7 @@ func (fc *Cluster) Delete(ns string, m manifest.Manifest) error {
 		return err
 	}
 
-	err = fc.Client.Dynamic().Resource(*gvr).Namespace(m.Namespace(ns)).Delete(m.Name(), &metav1.DeleteOptions{})
+	err = fc.Client.Dynamic().Resource(*gvr).Namespace(m.Namespace(ns)).Delete(context.TODO(), m.Name(), metav1.DeleteOptions{})
 	if err != nil {
 		return fmt.Errorf("deleting object failed: %v", err)
 	}
@@ -129,7 +130,7 @@ func (fc *Cluster) Update(ns string, m manifest.Manifest) error {
 		return err
 	}
 
-	_, err = fc.Client.Dynamic().Resource(*gvr).Namespace(m.Namespace(ns)).Update(m.Unstructured(), metav1.UpdateOptions{})
+	_, err = fc.Client.Dynamic().Resource(*gvr).Namespace(m.Namespace(ns)).Update(context.TODO(), m.Unstructured(), metav1.UpdateOptions{})
 	if err != nil {
 		return fmt.Errorf("updating object failed: %v", err)
 	}
