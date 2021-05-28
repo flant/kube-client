@@ -15,20 +15,19 @@ import (
 // 2. Register backends in client-go.
 //
 // Backends are used to send metrics from client-go to a Prometheus client.
-// Backends are implemented interfaces from https:// github.com/kubernetes/client-go/blob/master/tools/metrics/metrics.go
+// Backends are implemented interfaces from https://github.com/kubernetes/client-go/blob/master/tools/metrics/metrics.go
 
 // Deprecated: MetricStorage contains methods from flant/shell-operator metric storage.
 // The metrics support is to be deleted from this library. It is left for the time being.
 type MetricStorage interface {
 	RegisterCounter(metric string, labels map[string]string) *prometheus.CounterVec
 	CounterAdd(metric string, value float64, labels map[string]string)
-	RegisterHistogram(metric string, labels map[string]string) *prometheus.HistogramVec
-	RegisterHistogramWithBuckets(metric string, labels map[string]string, buckets []float64) *prometheus.HistogramVec
-	HistogramObserve(metric string, value float64, labels map[string]string)
+	RegisterHistogram(metric string, labels map[string]string, buckets []float64) *prometheus.HistogramVec
+	HistogramObserve(metric string, value float64, labels map[string]string, buckets []float64)
 }
 
-// Deprecated: to be removed since it is not a part of the client to support
-func RegisterMetrics(metricStorage MetricStorage, metricLabels map[string]string) {
+// Deprecated: RegisterKubernetesClientMetrics defines metrics in Prometheus client.
+func RegisterKubernetesClientMetrics(metricStorage MetricStorage, metricLabels map[string]string) {
 	labels := map[string]string{}
 	for k := range metricLabels {
 		labels[k] = ""
@@ -36,7 +35,7 @@ func RegisterMetrics(metricStorage MetricStorage, metricLabels map[string]string
 	labels["verb"] = ""
 	labels["url"] = ""
 
-	metricStorage.RegisterHistogramWithBuckets("{PREFIX}kubernetes_client_request_latency_seconds",
+	metricStorage.RegisterHistogram("{PREFIX}kubernetes_client_request_latency_seconds",
 		labels,
 		[]float64{
 			0.0,
@@ -44,21 +43,7 @@ func RegisterMetrics(metricStorage MetricStorage, metricLabels map[string]string
 			0.01, 0.02, 0.05, // 10,20,50 milliseconds
 			0.1, 0.2, 0.5, // 100,200,500 milliseconds
 			1, 2, 5, // 1,2,5 seconds
-			10, // 10 seconds
-		})
-
-	metricStorage.RegisterHistogramWithBuckets("{PREFIX}kubernetes_client_rate_limiter_latency_seconds",
-		map[string]string{
-			"verb": "",
-			"url":  "",
-		},
-		[]float64{
-			0.0,
-			0.001, 0.002, 0.005, // 1,2,5 milliseconds
-			0.01, 0.02, 0.05, // 10,20,50 milliseconds
-			0.1, 0.2, 0.5, // 100,200,500 milliseconds
-			1, 2, 5, // 1,2,5 seconds
-			10, // 10 seconds
+			10, 20, 50, // 10,20,50 seconds
 		})
 
 	labels = map[string]string{}
@@ -70,33 +55,6 @@ func RegisterMetrics(metricStorage MetricStorage, metricLabels map[string]string
 	labels["host"] = ""
 
 	metricStorage.RegisterCounter("{PREFIX}kubernetes_client_request_result_total", labels)
-}
-
-// Deprecated: to be removed since it is not a part of the client to support
-func NewRequestLatencyMetric(metricStorage MetricStorage, labels map[string]string) metrics.LatencyMetric {
-	return ClientRequestLatencyMetric{metricStorage, labels}
-}
-
-// Deprecated: to be removed since it is not a part of the client to support
-type ClientRequestLatencyMetric struct {
-	metricStorage MetricStorage
-	labels        map[string]string
-}
-
-// Deprecated: to be removed since it is not a part of the client to support
-func (c ClientRequestLatencyMetric) Observe(verb string, u url.URL, latency time.Duration) {
-	labels := map[string]string{}
-	for k, v := range c.labels {
-		labels[k] = v
-	}
-	labels["verb"] = verb
-	labels["url"] = u.String()
-
-	c.metricStorage.HistogramObserve(
-		"{PREFIX}kubernetes_client_request_latency_seconds",
-		latency.Seconds(),
-		labels,
-	)
 }
 
 // Deprecated: to be removed since it is not a part of the client to support
@@ -117,7 +75,9 @@ func (c ClientRateLimiterLatencyMetric) Observe(verb string, u url.URL, latency 
 		map[string]string{
 			"verb": verb,
 			"url":  u.String(),
-		})
+		},
+		nil,
+	)
 }
 
 // Deprecated: to be removed since it is not a part of the client to support
@@ -125,13 +85,12 @@ func NewRequestResultMetric(metricStorage MetricStorage, labels map[string]strin
 	return ClientRequestResultMetric{metricStorage, labels}
 }
 
-// Deprecated: to be removed since it is not a part of the client to support
 type ClientRequestResultMetric struct {
 	metricStorage MetricStorage
 	labels        map[string]string
 }
 
-// Deprecated: to be removed since it is not a part of the client to support
+// Deprecated: ClientRequestResultMetric
 func (c ClientRequestResultMetric) Increment(code, method, host string) {
 	labels := map[string]string{}
 	for k, v := range c.labels {

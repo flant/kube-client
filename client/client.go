@@ -1,7 +1,5 @@
 package client
 
-// TODO do not copy, use import "github.com/flant/kubedog/pkg/kube"
-
 import (
 	"fmt"
 	"io/ioutil"
@@ -63,7 +61,7 @@ func New() Client {
 	return &client{}
 }
 
-func NewFake() Client {
+func NewFake(_ map[schema.GroupVersionResource]string) Client {
 	scheme := runtime.NewScheme()
 	objs := []runtime.Object{}
 
@@ -209,11 +207,12 @@ func (c *client) Init() error {
 	}
 
 	if c.metricStorage != nil {
-		metrics.Register(metrics.RegisterOpts{
-			RateLimiterLatency: NewRateLimiterLatencyMetric(c.metricStorage),
-			RequestLatency:     NewRequestLatencyMetric(c.metricStorage, c.metricLabels),
-			RequestResult:      NewRequestResultMetric(c.metricStorage, c.metricLabels),
-		})
+		metrics.Register(
+			metrics.RegisterOpts{
+				RequestLatency: NewRateLimiterLatencyMetric(c.metricStorage),
+				RequestResult:  NewRequestResultMetric(c.metricStorage, c.metricLabels),
+			},
+		)
 	}
 
 	cacheDiscoveryDir, err := ioutil.TempDir("", "kube-cache-discovery-*")
@@ -273,6 +272,7 @@ func hasInClusterConfig() bool {
 	return token && ns
 }
 
+// fileExists returns true if path exists
 func fileExists(path string) (bool, error) {
 	_, err := os.Stat(path)
 	if err != nil {
@@ -299,13 +299,13 @@ func getOutOfClusterConfig(contextName, configPath string) (config *rest.Config,
 
 	// rc, err := clientConfig.RawConfig()
 	// if err != nil {
-	// 	return nil, fmt.Errorf("cannot get raw kubernetes config: %s", err)
+	//	return nil, fmt.Errorf("cannot get raw kubernetes config: %s", err)
 	// }
 	//
 	// if contextName != "" {
-	// 	Context = contextName
+	//	Context = contextName
 	// } else {
-	// 	Context = rc.CurrentContext
+	//	Context = rc.CurrentContext
 	// }
 
 	return
@@ -337,6 +337,8 @@ func (c *client) APIResourceList(apiVersion string) (lists []*metav1.APIResource
 		// Can return errors if api controllers are not available.
 		switch c.discovery().(type) {
 		case *fakediscovery.FakeDiscovery:
+			// FakeDiscovery does not implement ServerPreferredResources method
+			// lets return all possible resources, its better then nil
 			_, res, err := c.discovery().ServerGroupsAndResources()
 			return res, err
 
@@ -362,9 +364,9 @@ func (c *client) APIResourceList(apiVersion string) (lists []*metav1.APIResource
 	// TODO create debug command to output this from cli
 	// Debug mode will list all available CRDs for apiVersion
 	// for _, r := range list.APIResources {
-	// 	log.Debugf("GVR: %30s %30s %30s", list.GroupVersion, r.Kind,
-	// 		fmt.Sprintf("%+v", append([]string{r.Name}, r.ShortNames...)),
-	// 	)
+	//	log.Debugf("GVR: %30s %30s %30s", list.GroupVersion, r.Kind,
+	//		fmt.Sprintf("%+v", append([]string{r.Name}, r.ShortNames...)),
+	//	)
 	// }
 
 	return

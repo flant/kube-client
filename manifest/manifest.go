@@ -19,13 +19,13 @@ func getFieldString(m map[string]interface{}, field string) string {
 }
 
 func New(apiVersion, kind, name string) Manifest {
-	return map[string]interface{}{
+	return Manifest(map[string]interface{}{
 		"apiVersion": apiVersion,
 		"kind":       kind,
 		"metadata": map[string]interface{}{
 			"name": name,
 		},
-	}
+	})
 }
 
 func NewFromYAML(yamlOrJson string) (Manifest, error) {

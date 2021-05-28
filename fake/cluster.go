@@ -13,27 +13,37 @@ import (
 	fakediscovery "k8s.io/client-go/discovery/fake"
 	"k8s.io/client-go/kubernetes/scheme"
 
-	"github.com/flant/kube-client/client"
+	klient "github.com/flant/kube-client/client"
 	"github.com/flant/kube-client/manifest"
 )
 
 type Cluster struct {
-	Client client.Client
+	Client klient.Client
 
 	Discovery *fakediscovery.FakeDiscovery
 }
 
-func NewCluster(ver ClusterVersion) *Cluster {
+func NewFakeCluster(ver ClusterVersion) *Cluster {
 	if ver == "" {
 		ver = ClusterVersionV119
 	}
+	cres := ClusterResources(ver)
 
-	// Client
+	// FIXME: below code will be used in go-client 0.20.x pass it to NewFakeKubernetesClient
+	// gvrToListKind := make(map[schema.GroupVersionResource]string)
+	// for _, gr := range cres {
+	// 	for _, res := range gr.APIResources {
+	// 		gvr := schema.GroupVersionResource{
+	// 			Group:    res.Group,
+	// 			Version:  res.Version,
+	// 			Resource: res.Name,
+	// 		}
+	// 		gvrToListKind[gvr] = res.Kind + "List"
+	// 	}
+	// }
 
 	fc := &Cluster{}
-	fc.Client = client.NewFake()
-
-	// Discovery
+	fc.Client = klient.NewFake(nil)
 
 	var ok bool
 	fc.Discovery, ok = fc.Client.Discovery().(*fakediscovery.FakeDiscovery)
@@ -41,7 +51,7 @@ func NewCluster(ver ClusterVersion) *Cluster {
 		panic("couldn't convert Discovery() to *FakeDiscovery")
 	}
 	fc.Discovery.FakedServerVersion = &version.Info{GitCommit: ver.String(), Major: ver.Major(), Minor: ver.Minor()}
-	fc.Discovery.Resources = ClusterResources(ver)
+	fc.Discovery.Resources = cres
 
 	return fc
 }
@@ -165,12 +175,13 @@ func findGvr(resources []*metav1.APIResourceList, apiVersion, kindOrName string)
 	return nil
 }
 
-// Pluralize simplest way to make plural form (like resource) from object Kind
+// Pluralize is the simplest way to make a plural form (like resource) from k8s object Kind
 // ex: User -> users
 //     Prometheus -> prometheuses
 //     NetworkPolicy -> netwrokpolicies
+//     CustomPrometheusRules -> customprometheusrules
+//     Endpoints -> endpoints
 func Pluralize(kind string) string {
-
 	if kind == "" {
 		return kind
 	}
@@ -179,11 +190,14 @@ func Pluralize(kind string) string {
 
 	// maybe we dont need more complex pluralizer here
 	// but if we do, can take smth like https://github.com/gertd/go-pluralize
-	if strings.HasSuffix(kind, "s") {
+	switch {
+	case strings.HasSuffix(kind, "es"):
+		return kind
+	case strings.HasSuffix(kind, "ts"):
+		return kind
+	case strings.HasSuffix(kind, "s"):
 		return kind + "es"
-	}
-
-	if strings.HasSuffix(kind, "cy") {
+	case strings.HasSuffix(kind, "cy"):
 		return strings.TrimSuffix(kind, "y") + "ies"
 	}
 

@@ -1,8 +1,6 @@
 package manifest
 
-import (
-	"github.com/flant/kube-client/manifest/releaseutil"
-)
+import "github.com/flant/kube-client/manifest/releaseutil"
 
 func ListFromYamlDocs(rawManifests string) ([]Manifest, error) {
 	var manifests []Manifest
