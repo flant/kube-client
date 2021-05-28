@@ -11,7 +11,7 @@ import (
 	"flag"
 
 	log "github.com/sirupsen/logrus"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 )
 
 func InitAdapter(enableDebug bool) {
