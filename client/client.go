@@ -19,7 +19,6 @@ import (
 	fakedynamic "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
-
 	// load the gcp plugin (only required to authenticate against GKE clusters)
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
 	"k8s.io/client-go/rest"
@@ -55,20 +54,23 @@ type Client interface {
 	APIResourceList(apiVersion string) ([]*metav1.APIResourceList, error)
 	APIResource(apiVersion, kind string) (*metav1.APIResource, error)
 	GroupVersionResource(apiVersion, kind string) (schema.GroupVersionResource, error)
+
+	// ReloadDynamic reloads dynamic fake client
+	// the single way to provide List operations after 1.19 client - https://github.com/kubernetes/client-go/issues/949#issuecomment-811154420
+	ReloadDynamic(gvrList map[schema.GroupVersionResource]string)
 }
 
 func New() Client {
 	return &client{}
 }
 
-func NewFake(_ map[schema.GroupVersionResource]string) Client {
-	scheme := runtime.NewScheme()
-	objs := []runtime.Object{}
-
+func NewFake(gvr map[schema.GroupVersionResource]string) Client {
+	sc := runtime.NewScheme()
 	return &client{
 		Interface:        fake.NewSimpleClientset(),
 		defaultNamespace: "default",
-		dynamicClient:    fakedynamic.NewSimpleDynamicClient(scheme, objs...),
+		dynamicClient:    fakedynamic.NewSimpleDynamicClientWithCustomListKinds(sc, gvr),
+		schema:           sc,
 	}
 }
 
@@ -88,6 +90,11 @@ type client struct {
 	server           string
 	metricStorage    MetricStorage
 	metricLabels     map[string]string
+	schema           *runtime.Scheme
+}
+
+func (c *client) ReloadDynamic(gvrList map[schema.GroupVersionResource]string) {
+	c.dynamicClient = fakedynamic.NewSimpleDynamicClientWithCustomListKinds(c.schema, gvrList)
 }
 
 func (c *client) WithServer(server string) {

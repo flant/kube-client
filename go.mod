@@ -1,18 +1,17 @@
 module github.com/flant/kube-client
 
-go 1.12
+go 1.16
 
 require (
 	github.com/imdario/mergo v0.3.7 // indirect
-	github.com/onsi/gomega v1.9.0
-	github.com/prometheus/client_golang v1.7.1
-	github.com/sirupsen/logrus v1.6.0
-	github.com/stretchr/testify v1.6.1
-	gopkg.in/yaml.v3 v3.0.0-20200615113413-eeeca48fe776 // indirect
-	k8s.io/api v0.19.11
-	k8s.io/apiextensions-apiserver v0.19.11
-	k8s.io/apimachinery v0.19.11
-	k8s.io/client-go v0.19.11
-	k8s.io/klog/v2 v2.2.0
+	github.com/onsi/gomega v1.20.1
+	github.com/prometheus/client_golang v1.12.1
+	github.com/sirupsen/logrus v1.8.1
+	github.com/stretchr/testify v1.8.0
+	k8s.io/api v0.25.4
+	k8s.io/apiextensions-apiserver v0.25.4
+	k8s.io/apimachinery v0.25.4
+	k8s.io/client-go v0.25.4
+	k8s.io/klog/v2 v2.70.1
 	sigs.k8s.io/yaml v1.2.0
 )

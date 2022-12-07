@@ -3,6 +3,9 @@ package fake
 // set current kube-context to cluster with necessary version and run go generate
 // it will create file with desired version and resources
 // you can use existing cluster or kind/minikube/microk8s/etc
+// like: kind create cluster --image "kindest/node:v1.25.3"
+// images for kind here: https://hub.docker.com/r/kindest/node/tags?page=1&name=1.25.
+
 //go:generate ./scripts/resources_generator
 
 import (
@@ -29,6 +32,18 @@ func ClusterResources(version ClusterVersion) []*metav1.APIResourceList {
 
 	case ClusterVersionV121:
 		return v121ClusterResources
+
+	case ClusterVersionV122:
+		return v122ClusterResources
+
+	case ClusterVersionV123:
+		return v123ClusterResources
+
+	case ClusterVersionV124:
+		return v124ClusterResources
+
+	case ClusterVersionV125:
+		return v125ClusterResources
 	}
 
 	return nil
@@ -44,6 +59,10 @@ const (
 	ClusterVersionV119 ClusterVersion = "v1.19.0"
 	ClusterVersionV120 ClusterVersion = "v1.20.0"
 	ClusterVersionV121 ClusterVersion = "v1.21.0"
+	ClusterVersionV122 ClusterVersion = "v1.22.0"
+	ClusterVersionV123 ClusterVersion = "v1.23.0"
+	ClusterVersionV124 ClusterVersion = "v1.24.0"
+	ClusterVersionV125 ClusterVersion = "v1.25.0"
 )
 
 func (cv ClusterVersion) String() string {

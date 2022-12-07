@@ -5,45 +5,45 @@ import (
 	"fmt"
 	"strings"
 
+	klient "github.com/flant/kube-client/client"
+	"github.com/flant/kube-client/manifest"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/version"
 	fakediscovery "k8s.io/client-go/discovery/fake"
-	"k8s.io/client-go/kubernetes/scheme"
-
-	klient "github.com/flant/kube-client/client"
-	"github.com/flant/kube-client/manifest"
 )
 
 type Cluster struct {
 	Client klient.Client
 
 	Discovery *fakediscovery.FakeDiscovery
+	gvrList   map[schema.GroupVersionResource]string
 }
 
 func NewFakeCluster(ver ClusterVersion) *Cluster {
 	if ver == "" {
-		ver = ClusterVersionV119
+		ver = ClusterVersionV123
 	}
 	cres := ClusterResources(ver)
 
-	// FIXME: below code will be used in go-client 0.20.x pass it to NewFakeKubernetesClient
-	// gvrToListKind := make(map[schema.GroupVersionResource]string)
-	// for _, gr := range cres {
-	// 	for _, res := range gr.APIResources {
-	// 		gvr := schema.GroupVersionResource{
-	// 			Group:    res.Group,
-	// 			Version:  res.Version,
-	// 			Resource: res.Name,
-	// 		}
-	// 		gvrToListKind[gvr] = res.Kind + "List"
-	// 	}
-	// }
+	gvrToListKind := make(map[schema.GroupVersionResource]string)
+	for _, gr := range cres {
+		for _, res := range gr.APIResources {
+			gvr := schema.GroupVersionResource{
+				Group:    res.Group,
+				Version:  res.Version,
+				Resource: res.Name,
+			}
+			gvrToListKind[gvr] = res.Kind + "List"
+		}
+	}
 
-	fc := &Cluster{}
-	fc.Client = klient.NewFake(nil)
+	fc := &Cluster{
+		gvrList: gvrToListKind,
+	}
+	fc.Client = klient.NewFake(gvrToListKind)
 
 	var ok bool
 	fc.Discovery, ok = fc.Client.Discovery().(*fakediscovery.FakeDiscovery)
@@ -56,6 +56,10 @@ func NewFakeCluster(ver ClusterVersion) *Cluster {
 	return fc
 }
 
+func (fc *Cluster) reloadDynamicClient() {
+	fc.Client.ReloadDynamic(fc.gvrList)
+}
+
 func (fc *Cluster) CreateNs(ns string) {
 	nsObj := &corev1.Namespace{}
 	nsObj.Name = ns
@@ -64,10 +68,19 @@ func (fc *Cluster) CreateNs(ns string) {
 
 // RegisterCRD registers custom resources for the cluster
 func (fc *Cluster) RegisterCRD(group, version, kind string, namespaced bool) {
-	scheme.Scheme.AddKnownTypeWithName(schema.GroupVersionKind{Group: group, Version: version, Kind: kind}, &unstructured.Unstructured{})
+	gvk := schema.GroupVersionKind{Group: group, Version: version, Kind: kind}
+	pluralGVR, _ := meta.UnsafeGuessKindToResource(gvk)
+
+	if _, ok := fc.gvrList[pluralGVR]; ok {
+		return
+	}
+
+	fc.gvrList[pluralGVR] = kind + "List"
+	fc.reloadDynamicClient()
+
 	newResource := metav1.APIResource{
 		Kind:       kind,
-		Name:       Pluralize(kind),
+		Name:       pluralGVR.Resource,
 		Verbs:      metav1.Verbs{"create", "delete", "deletecollection", "get", "list", "patch", "update", "watch"},
 		Group:      group,
 		Version:    version,
@@ -173,33 +186,4 @@ func findGvr(resources []*metav1.APIResourceList, apiVersion, kindOrName string)
 		}
 	}
 	return nil
-}
-
-// Pluralize is the simplest way to make a plural form (like resource) from k8s object Kind
-// ex: User -> users
-//     Prometheus -> prometheuses
-//     NetworkPolicy -> netwrokpolicies
-//     CustomPrometheusRules -> customprometheusrules
-//     Endpoints -> endpoints
-func Pluralize(kind string) string {
-	if kind == "" {
-		return kind
-	}
-
-	kind = strings.ToLower(kind)
-
-	// maybe we dont need more complex pluralizer here
-	// but if we do, can take smth like https://github.com/gertd/go-pluralize
-	switch {
-	case strings.HasSuffix(kind, "es"):
-		return kind
-	case strings.HasSuffix(kind, "ts"):
-		return kind
-	case strings.HasSuffix(kind, "s"):
-		return kind + "es"
-	case strings.HasSuffix(kind, "cy"):
-		return strings.TrimSuffix(kind, "y") + "ies"
-	}
-
-	return kind + "s"
 }

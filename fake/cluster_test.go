@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -13,27 +12,26 @@ import (
 func TestRegisterCRD(t *testing.T) {
 	f := NewFakeCluster("")
 
-	f.RegisterCRD("deckhouse.io", "v1alpha1", "KeepalivedInstance", false)
-	gvk := schema.GroupVersionResource{
-		Group:    "deckhouse.io",
-		Version:  "v1alpha1",
-		Resource: Pluralize("KeepalivedInstance"),
-	}
-	_, err := f.Client.Dynamic().Resource(gvk).Namespace("").List(context.TODO(), v1.ListOptions{})
-	require.NoError(t, err)
-}
+	t.Run("test CRD registration", func(t *testing.T) {
+		f.RegisterCRD("deckhouse.io", "v1alpha1", "KeepalivedInstance", false)
+		gvk := schema.GroupVersionResource{
+			Group:    "deckhouse.io",
+			Version:  "v1alpha1",
+			Resource: "keepalivedinstances",
+		}
+		_, err := f.Client.Dynamic().Resource(gvk).Namespace("").List(context.TODO(), v1.ListOptions{})
+		require.NoError(t, err)
 
-func TestPluralize(t *testing.T) {
-	tests := map[string]string{
-		"Endpoints":             "endpoints",
-		"Prometheus":            "prometheuses",
-		"NetworkPolicy":         "networkpolicies",
-		"CustomPrometheusRules": "customprometheusrules",
-		"Alertmanager":          "alertmanagers",
-		"Node":                  "nodes",
-	}
+		_, err = f.Client.Dynamic().Resource(gvk).Namespace("").Get(context.TODO(), "foo", v1.GetOptions{})
+		require.ErrorContains(t, err, "not found")
+	})
 
-	for before, after := range tests {
-		assert.Equal(t, after, Pluralize(before))
-	}
+	t.Run("test default resources", func(t *testing.T) {
+		_, err := f.Client.Dynamic().Resource(schema.GroupVersionResource{
+			Group:    "",
+			Version:  "v1",
+			Resource: "pods",
+		}).Namespace("").List(context.TODO(), v1.ListOptions{})
+		require.NoError(t, err)
+	})
 }
