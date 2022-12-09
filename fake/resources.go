@@ -4,7 +4,7 @@ package fake
 // it will create file with desired version and resources
 // you can use existing cluster or kind/minikube/microk8s/etc
 // like: kind create cluster --image "kindest/node:v1.25.3"
-// images for kind here: https://hub.docker.com/r/kindest/node/tags?page=1&name=1.25.
+// you can images for kind here, in a release message: https://github.com/kubernetes-sigs/kind/releases
 
 //go:generate ./scripts/resources_generator
 
