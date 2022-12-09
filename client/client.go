@@ -94,6 +94,7 @@ type client struct {
 	schema           *runtime.Scheme
 }
 
+// ReloadDynamic creates new dynamic client with the new set of CRDs.
 func (c *client) ReloadDynamic(gvrList map[schema.GroupVersionResource]string) {
 	c.dynamicClient = fakedynamic.NewSimpleDynamicClientWithCustomListKinds(c.schema, gvrList)
 }
