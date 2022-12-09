@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"net/url"
 	"time"
 
@@ -68,7 +69,7 @@ type ClientRateLimiterLatencyMetric struct {
 }
 
 // Deprecated: to be removed since it is not a part of the client to support
-func (c ClientRateLimiterLatencyMetric) Observe(verb string, u url.URL, latency time.Duration) {
+func (c ClientRateLimiterLatencyMetric) Observe(ctx context.Context, verb string, u url.URL, latency time.Duration) {
 	c.metricStorage.HistogramObserve(
 		"{PREFIX}kubernetes_client_rate_limiter_latency_seconds",
 		latency.Seconds(),
@@ -91,7 +92,7 @@ type ClientRequestResultMetric struct {
 }
 
 // Deprecated: ClientRequestResultMetric
-func (c ClientRequestResultMetric) Increment(code, method, host string) {
+func (c ClientRequestResultMetric) Increment(ctx context.Context, code, method, host string) {
 	labels := map[string]string{}
 	for k, v := range c.labels {
 		labels[k] = v
