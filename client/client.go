@@ -55,8 +55,9 @@ type Client interface {
 	APIResource(apiVersion, kind string) (*metav1.APIResource, error)
 	GroupVersionResource(apiVersion, kind string) (schema.GroupVersionResource, error)
 
-	// ReloadDynamic reloads dynamic fake client
-	// the single way to provide List operations after 1.19 client - https://github.com/kubernetes/client-go/issues/949#issuecomment-811154420
+	// ReloadDynamic reloads dynamic fake client.
+	// It is the only way to provide List operations on custom resources in client-go 1.20+.
+	// See https://github.com/kubernetes/client-go/issues/949#issuecomment-811154420
 	ReloadDynamic(gvrList map[schema.GroupVersionResource]string)
 }
 
