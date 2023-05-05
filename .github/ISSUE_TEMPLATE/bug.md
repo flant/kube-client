@@ -17,20 +17,3 @@ about: Report a bug to help us improve Shell-operator
 1. ...
 2. ...
 3. ...
-
-**Environment**:
-- Kube-client version:
-- Kubernetes version:
-- Installation type (kubectl apply, helm chart, etc.):
-
-**Anything else we should know?**:
-
-**Additional information for debugging (if necessary)**:
-
-<details><summary>Hook script</summary><br><pre>
-
-</pre></details>
-
-<details><summary>Logs</summary><br><pre>
-
-</pre></details>

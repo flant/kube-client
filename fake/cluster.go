@@ -5,14 +5,15 @@ import (
 	"fmt"
 	"strings"
 
-	klient "github.com/flant/kube-client/client"
-	"github.com/flant/kube-client/manifest"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/version"
 	fakediscovery "k8s.io/client-go/discovery/fake"
+
+	klient "github.com/flant/kube-client/client"
+	"github.com/flant/kube-client/manifest"
 )
 
 type Cluster struct {

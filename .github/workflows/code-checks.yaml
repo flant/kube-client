@@ -1,0 +1,22 @@
+# every push to a branch:
+# - check grammar
+# - go fmt
+name: Code checks
+on:
+  push:
+    branches:
+jobs:
+  code_style:
+    name: Go code style
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Go 1.19
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.19
+
+      - uses: actions/checkout@v2
+
+      - name: code style
+        run: |
+          gofmt -d $(find . -type f -iname '*.go')
