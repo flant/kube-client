@@ -2,9 +2,9 @@
 //
 // Usage:
 //
-//   import (
-//     _ "github.com/flant/kube-client/klogtologrus"
-//   )
+//	import (
+//	  _ "github.com/flant/kube-client/klogtologrus"
+//	)
 package klogtologrus
 
 import (

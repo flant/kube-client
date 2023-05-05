@@ -5,7 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"os"
 	"sync"
 	"testing"
@@ -75,7 +75,7 @@ func Test_adapter_catches_klog_WarnInfoError(t *testing.T) {
 func Test_klog_should_not_output_to_Stderr(t *testing.T) {
 	g := NewWithT(t)
 
-	log.SetOutput(ioutil.Discard)
+	log.SetOutput(io.Discard)
 
 	stderr := captureStderr(func() {
 		fmt.Fprintf(os.Stderr, "asdasdasd")

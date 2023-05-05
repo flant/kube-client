@@ -2,7 +2,6 @@ package client
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"strings"
 	"time"
@@ -19,14 +18,12 @@ import (
 	fakedynamic "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
-	// load the gcp plugin (only required to authenticate against GKE clusters)
-	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
+	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp" // load the gcp plugin (only required to authenticate against GKE clusters)
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/metrics"
 
-	// route klog messages from client-go to logrus
-	_ "github.com/flant/kube-client/klogtologrus"
+	_ "github.com/flant/kube-client/klogtologrus" // route klog messages from client-go to logrus
 )
 
 const (
@@ -163,22 +160,19 @@ func (c *client) Init() error {
 							err = fmt.Errorf("out-of-cluster config error: %v, in-cluster config error: %v", outOfClusterErr, err)
 							logEntry.Errorf("configuration problems: %s", err)
 							return err
-						} else {
-							return fmt.Errorf("in-cluster config is not found")
 						}
-					} else {
-						logEntry.Errorf("in-cluster problem: %s", err)
-						return err
+						return fmt.Errorf("in-cluster config is not found")
 					}
+					logEntry.Errorf("in-cluster problem: %s", err)
+					return err
 				}
 			} else {
 				// if not in cluster return outOfCluster error
 				if outOfClusterErr != nil {
 					logEntry.Errorf("out-of-cluster problem: %s", outOfClusterErr)
 					return outOfClusterErr
-				} else {
-					return fmt.Errorf("no kubernetes client config found")
 				}
+				return fmt.Errorf("no kubernetes client config found")
 			}
 			configType = "in-cluster"
 		}
@@ -224,12 +218,12 @@ func (c *client) Init() error {
 		)
 	}
 
-	cacheDiscoveryDir, err := ioutil.TempDir("", "kube-cache-discovery-*")
+	cacheDiscoveryDir, err := os.MkdirTemp("", "kube-cache-discovery-*")
 	if err != nil {
 		return err
 	}
 
-	cacheHttpDir, err := ioutil.TempDir("", "kube-cache-http-*")
+	cacheHttpDir, err := os.MkdirTemp("", "kube-cache-http-*")
 	if err != nil {
 		return err
 	}
@@ -326,7 +320,7 @@ func getInClusterConfig() (config *rest.Config, defaultNs string, err error) {
 		return nil, "", fmt.Errorf("in-cluster configuration problem: %s", err)
 	}
 
-	data, err := ioutil.ReadFile(kubeNamespaceFilePath)
+	data, err := os.ReadFile(kubeNamespaceFilePath)
 	if err != nil {
 		return nil, "", fmt.Errorf("in-cluster configuration problem: cannot determine default kubernetes namespace: error reading %s: %s", kubeNamespaceFilePath, err)
 	}
