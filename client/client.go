@@ -18,6 +18,8 @@ import (
 	fakedynamic "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/metadata"
+	fakemetadata "k8s.io/client-go/metadata/fake"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp" // load the gcp plugin (only required to authenticate against GKE clusters)
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -47,6 +49,7 @@ type Client interface {
 	DefaultNamespace() string
 	Dynamic() dynamic.Interface
 	ApiExt() apixv1client.ApiextensionsV1Interface
+	Metadata() metadata.Interface
 
 	APIResourceList(apiVersion string) ([]*metav1.APIResourceList, error)
 	APIResource(apiVersion, kind string) (*metav1.APIResource, error)
@@ -68,6 +71,7 @@ func NewFake(gvr map[schema.GroupVersionResource]string) Client {
 		Interface:        fake.NewSimpleClientset(),
 		defaultNamespace: "default",
 		dynamicClient:    fakedynamic.NewSimpleDynamicClientWithCustomListKinds(sc, gvr),
+		metadataClient:   fakemetadata.NewSimpleMetadataClient(sc),
 		schema:           sc,
 	}
 }
@@ -82,6 +86,7 @@ type client struct {
 	defaultNamespace string
 	dynamicClient    dynamic.Interface
 	apiExtClient     apixv1client.ApiextensionsV1Interface
+	metadataClient   metadata.Interface
 	qps              float32
 	burst            int
 	timeout          time.Duration
@@ -135,6 +140,10 @@ func (c *client) Dynamic() dynamic.Interface {
 
 func (c *client) ApiExt() apixv1client.ApiextensionsV1Interface {
 	return c.apiExtClient
+}
+
+func (c *client) Metadata() metadata.Interface {
+	return c.metadataClient
 }
 
 func (c *client) Init() error {
