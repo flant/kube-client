@@ -218,6 +218,11 @@ func (c *client) Init() error {
 		return err
 	}
 
+	c.metadataClient, err = metadata.NewForConfig(config)
+	if err != nil {
+		return err
+	}
+
 	if c.metricStorage != nil {
 		metrics.Register(
 			metrics.RegisterOpts{
