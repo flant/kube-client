@@ -33,41 +33,13 @@ const (
 	kubeNamespaceFilePath = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
 )
 
-type Client interface {
-	kubernetes.Interface
-
-	WithContextName(contextName string)
-	WithConfigPath(configPath string)
-	WithServer(server string)
-	WithRateLimiterSettings(qps float32, burst int)
-	WithTimeout(time time.Duration)
-	WithMetricStorage(metricStorage MetricStorage)
-	WithMetricLabels(labels map[string]string)
-
-	Init() error
-
-	DefaultNamespace() string
-	Dynamic() dynamic.Interface
-	ApiExt() apixv1client.ApiextensionsV1Interface
-	Metadata() metadata.Interface
-
-	APIResourceList(apiVersion string) ([]*metav1.APIResourceList, error)
-	APIResource(apiVersion, kind string) (*metav1.APIResource, error)
-	GroupVersionResource(apiVersion, kind string) (schema.GroupVersionResource, error)
-
-	// ReloadDynamic reloads dynamic fake client.
-	// It is the only way to provide List operations on custom resources in client-go 1.20+.
-	// See https://github.com/kubernetes/client-go/issues/949#issuecomment-811154420
-	ReloadDynamic(gvrList map[schema.GroupVersionResource]string)
+func New() *Client {
+	return &Client{}
 }
 
-func New() Client {
-	return &client{}
-}
-
-func NewFake(gvr map[schema.GroupVersionResource]string) Client {
+func NewFake(gvr map[schema.GroupVersionResource]string) *Client {
 	sc := runtime.NewScheme()
-	return &client{
+	return &Client{
 		Interface:        fake.NewSimpleClientset(),
 		defaultNamespace: "default",
 		dynamicClient:    fakedynamic.NewSimpleDynamicClientWithCustomListKinds(sc, gvr),
@@ -76,9 +48,7 @@ func NewFake(gvr map[schema.GroupVersionResource]string) Client {
 	}
 }
 
-var _ Client = &client{}
-
-type client struct {
+type Client struct {
 	kubernetes.Interface
 	cachedDiscovery  discovery.CachedDiscoveryInterface
 	contextName      string
@@ -94,59 +64,65 @@ type client struct {
 	metricStorage    MetricStorage
 	metricLabels     map[string]string
 	schema           *runtime.Scheme
+	restConfig       *rest.Config
 }
 
 // ReloadDynamic creates new dynamic client with the new set of CRDs.
-func (c *client) ReloadDynamic(gvrList map[schema.GroupVersionResource]string) {
+func (c *Client) ReloadDynamic(gvrList map[schema.GroupVersionResource]string) {
 	c.dynamicClient = fakedynamic.NewSimpleDynamicClientWithCustomListKinds(c.schema, gvrList)
 }
 
-func (c *client) WithServer(server string) {
+func (c *Client) WithServer(server string) {
 	c.server = server
 }
 
-func (c *client) WithContextName(name string) {
+func (c *Client) WithContextName(name string) {
 	c.contextName = name
 }
 
-func (c *client) WithConfigPath(path string) {
+func (c *Client) WithConfigPath(path string) {
 	c.configPath = path
 }
 
-func (c *client) WithRateLimiterSettings(qps float32, burst int) {
+func (c *Client) WithRateLimiterSettings(qps float32, burst int) {
 	c.qps = qps
 	c.burst = burst
 }
 
-func (c *client) WithTimeout(timeout time.Duration) {
+func (c *Client) WithTimeout(timeout time.Duration) {
 	c.timeout = timeout
 }
 
-func (c *client) WithMetricStorage(metricStorage MetricStorage) {
+func (c *Client) WithMetricStorage(metricStorage MetricStorage) {
 	c.metricStorage = metricStorage
 }
 
-func (c *client) WithMetricLabels(labels map[string]string) {
+func (c *Client) WithMetricLabels(labels map[string]string) {
 	c.metricLabels = labels
 }
 
-func (c *client) DefaultNamespace() string {
+func (c *Client) DefaultNamespace() string {
 	return c.defaultNamespace
 }
 
-func (c *client) Dynamic() dynamic.Interface {
+func (c *Client) Dynamic() dynamic.Interface {
 	return c.dynamicClient
 }
 
-func (c *client) ApiExt() apixv1client.ApiextensionsV1Interface {
+func (c *Client) ApiExt() apixv1client.ApiextensionsV1Interface {
 	return c.apiExtClient
 }
 
-func (c *client) Metadata() metadata.Interface {
+func (c *Client) Metadata() metadata.Interface {
 	return c.metadataClient
 }
 
-func (c *client) Init() error {
+// RestConfig returns kubernetes Config with the common attributes that was passed on initialization.
+func (c *Client) RestConfig() *rest.Config {
+	return c.restConfig
+}
+
+func (c *Client) Init() error {
 	logEntry := log.WithField("operator.component", "KubernetesAPIClient")
 
 	var err error
@@ -247,6 +223,7 @@ func (c *client) Init() error {
 		return err
 	}
 
+	c.restConfig = config
 	logEntry.Infof("Kubernetes client is configured successfully with '%s' config", configType)
 
 	return nil
@@ -348,7 +325,7 @@ func getInClusterConfig() (config *rest.Config, defaultNs string, err error) {
 //
 // NOTE that fetching all preferred resources can give errors if there are non-working
 // api controllers in cluster.
-func (c *client) APIResourceList(apiVersion string) (lists []*metav1.APIResourceList, err error) {
+func (c *Client) APIResourceList(apiVersion string) (lists []*metav1.APIResourceList, err error) {
 	if apiVersion == "" {
 		// Get all preferred resources.
 		// Can return errors if api controllers are not available.
@@ -393,7 +370,7 @@ func (c *client) APIResourceList(apiVersion string) (lists []*metav1.APIResource
 //
 // NOTE that fetching with empty apiVersion can give errors if there are non-working
 // api controllers in cluster.
-func (c *client) APIResource(apiVersion, kind string) (res *metav1.APIResource, err error) {
+func (c *Client) APIResource(apiVersion, kind string) (res *metav1.APIResource, err error) {
 	lists, err := c.APIResourceList(apiVersion)
 	if err != nil && len(lists) == 0 {
 		// apiVersion is defined and there is a ServerResourcesForGroupVersion error
@@ -427,7 +404,7 @@ func (c *client) APIResource(apiVersion, kind string) (res *metav1.APIResource, 
 //
 // This method is borrowed from kubectl and kubedog. The difference are:
 // - lower case comparison with kind, name and all short names
-func (c *client) GroupVersionResource(apiVersion, kind string) (gvr schema.GroupVersionResource, err error) {
+func (c *Client) GroupVersionResource(apiVersion, kind string) (gvr schema.GroupVersionResource, err error) {
 	apiRes, err := c.APIResource(apiVersion, kind)
 	if err != nil {
 		return
@@ -440,7 +417,7 @@ func (c *client) GroupVersionResource(apiVersion, kind string) (gvr schema.Group
 	}, nil
 }
 
-func (c *client) discovery() discovery.DiscoveryInterface {
+func (c *Client) discovery() discovery.DiscoveryInterface {
 	if c.cachedDiscovery != nil {
 		return c.cachedDiscovery
 	}
