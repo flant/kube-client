@@ -17,7 +17,7 @@ import (
 )
 
 type Cluster struct {
-	Client klient.Client
+	Client *klient.Client
 
 	Discovery *fakediscovery.FakeDiscovery
 	gvrList   map[schema.GroupVersionResource]string
