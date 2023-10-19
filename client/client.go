@@ -2,15 +2,15 @@ package client
 
 import (
 	"fmt"
-	"github.com/pkg/errors"
-	"k8s.io/client-go/discovery/cached/memory"
 	"os"
 	"reflect"
 	"strings"
 	"time"
 
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	apixv1client "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -331,10 +331,13 @@ func getInClusterConfig() (config *rest.Config, defaultNs string, err error) {
 func (c *Client) APIResourceList(apiVersion string) (lists []*metav1.APIResourceList, err error) {
 	lists, err = c.apiResourceList(apiVersion)
 	if err != nil {
-		fmt.Println("KUBEERR2", err, reflect.TypeOf(err))
-		if errors.Is(err, memory.ErrCacheNotFound) {
+		fmt.Println("KUBEERR2", err, reflect.TypeOf(err), reflect.TypeOf(errors.Unwrap(err)))
+		if apierrors.IsNotFound(errors.Unwrap(err)) {
+			fmt.Println("INVALIDATE LIST")
 			c.cachedDiscovery.Invalidate()
 			return c.apiResourceList(apiVersion)
+		} else {
+			fmt.Println("Unknown error type", reflect.TypeOf(err), reflect.TypeOf(errors.Unwrap(err)))
 		}
 
 		return nil, err
@@ -366,10 +369,8 @@ func (c *Client) apiResourceList(apiVersion string) (lists []*metav1.APIResource
 
 		list, err := c.discovery().ServerResourcesForGroupVersion(gv.String())
 		if err != nil {
-			fmt.Println("KUBEERR1", err, reflect.TypeOf(err))
 			return nil, errors.Wrapf(err, "apiVersion '%s' has no supported resources in cluster", apiVersion)
 		}
-		fmt.Println("AFTER LIST SEARCH")
 		lists = []*metav1.APIResourceList{list}
 	}
 
@@ -387,8 +388,6 @@ func (c *Client) APIResource(apiVersion, kind string) (res *metav1.APIResource, 
 		return nil, err
 	}
 
-	fmt.Println("LISTS", lists, err)
-
 	fmt.Println("KIND", kind)
 
 	resource := getApiResourceFromResourceLists(kind, lists)
@@ -397,15 +396,15 @@ func (c *Client) APIResource(apiVersion, kind string) (res *metav1.APIResource, 
 	}
 	fmt.Println("AFTER1", resource)
 
-	fmt.Println("INVALIDATE")
-	c.cachedDiscovery.Invalidate()
-
-	resource = getApiResourceFromResourceLists(kind, lists)
-	if resource != nil {
-		return resource, nil
-	}
-
-	fmt.Println("AFTER2", resource)
+	//fmt.Println("INVALIDATE")
+	//c.cachedDiscovery.Invalidate()
+	//
+	//resource = getApiResourceFromResourceLists(kind, lists)
+	//if resource != nil {
+	//	return resource, nil
+	//}
+	//
+	//fmt.Println("AFTER2", resource)
 
 	// If resource is not found, append additional error, may be the custom API of the resource is not available.
 	additionalErr := ""
@@ -435,10 +434,17 @@ func (c *Client) GroupVersionResource(apiVersion, kind string) (gvr schema.Group
 
 func (c *Client) discovery() discovery.DiscoveryInterface {
 	if c.cachedDiscovery != nil {
-		fmt.Println("HAS CACHE")
 		return c.cachedDiscovery
 	}
 	return c.Discovery()
+}
+
+// InvalidateDiscoveryCache allows you to invalidate cache manually, for example, when you are deploying CRD
+// KubeClient tries to invalidate cache automatically when needed, but you can save a few resources to call this manually
+func (c *Client) InvalidateDiscoveryCache() {
+	if c.cachedDiscovery != nil {
+		c.cachedDiscovery.Invalidate()
+	}
 }
 
 func equalLowerCasedToOneOf(term string, choices ...string) bool {
