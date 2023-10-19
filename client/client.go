@@ -10,7 +10,6 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	apixv1client "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -332,13 +331,13 @@ func (c *Client) APIResourceList(apiVersion string) (lists []*metav1.APIResource
 	lists, err = c.apiResourceList(apiVersion)
 	if err != nil {
 		fmt.Println("KUBEERR2", err, reflect.TypeOf(err), errors.Cause(err), reflect.TypeOf(errors.Unwrap(err)))
-
-		if apierrors.IsNotFound(errors.Cause(err)) {
+		if errors.Cause(err).Error() == "not found" {
+			// *errors.errorString type is here, we can't check it another way
 			fmt.Println("INVALIDATE LIST")
 			c.cachedDiscovery.Invalidate()
 			return c.apiResourceList(apiVersion)
 		} else {
-			fmt.Println("Unknown error type", reflect.TypeOf(err), reflect.TypeOf(errors.Cause(err)))
+			fmt.Println("Unknown apiResourceList error:", errors.Cause(err))
 		}
 
 		return nil, err
@@ -370,7 +369,7 @@ func (c *Client) apiResourceList(apiVersion string) (lists []*metav1.APIResource
 
 		list, err := c.discovery().ServerResourcesForGroupVersion(gv.String())
 		if err != nil {
-			fmt.Println("KUBEERR1", reflect.TypeOf(err))
+			// if not found, err has type *errors.errorString here
 			return nil, errors.Wrapf(err, "apiVersion '%s' has no supported resources in cluster", apiVersion)
 		}
 		lists = []*metav1.APIResourceList{list}
@@ -390,13 +389,11 @@ func (c *Client) APIResource(apiVersion, kind string) (res *metav1.APIResource, 
 		return nil, err
 	}
 
-	fmt.Println("KIND", kind)
-
 	resource := getApiResourceFromResourceLists(kind, lists)
 	if resource != nil {
 		return resource, nil
 	}
-	fmt.Println("AFTER1", resource)
+	fmt.Println("AFTER1: KIND NOT FOUND", kind, resource, lists)
 
 	//fmt.Println("INVALIDATE")
 	//c.cachedDiscovery.Invalidate()
