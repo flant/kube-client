@@ -2,7 +2,10 @@ package client
 
 import (
 	"fmt"
+	"github.com/pkg/errors"
+	"k8s.io/client-go/discovery/cached/memory"
 	"os"
+	"reflect"
 	"strings"
 	"time"
 
@@ -326,6 +329,21 @@ func getInClusterConfig() (config *rest.Config, defaultNs string, err error) {
 // NOTE that fetching all preferred resources can give errors if there are non-working
 // api controllers in cluster.
 func (c *Client) APIResourceList(apiVersion string) (lists []*metav1.APIResourceList, err error) {
+	lists, err = c.apiResourceList(apiVersion)
+	if err != nil {
+		fmt.Println("KUBEERR2", err, reflect.TypeOf(err))
+		if errors.Is(err, memory.ErrCacheNotFound) {
+			c.cachedDiscovery.Invalidate()
+			return c.apiResourceList(apiVersion)
+		}
+
+		return nil, err
+	}
+
+	return lists, nil
+}
+
+func (c *Client) apiResourceList(apiVersion string) (lists []*metav1.APIResourceList, err error) {
 	if apiVersion == "" {
 		// Get all preferred resources.
 		// Can return errors if api controllers are not available.
@@ -348,20 +366,11 @@ func (c *Client) APIResourceList(apiVersion string) (lists []*metav1.APIResource
 
 		list, err := c.discovery().ServerResourcesForGroupVersion(gv.String())
 		if err != nil {
-			return nil, fmt.Errorf("apiVersion '%s' has no supported resources in cluster: %v", apiVersion, err)
+			fmt.Println("KUBEERR1", err, reflect.TypeOf(err))
+			return nil, errors.Wrapf(err, "apiVersion '%s' has no supported resources in cluster", apiVersion)
 		}
 		lists = []*metav1.APIResourceList{list}
 	}
-
-	// TODO should it copy group and version into each resource?
-
-	// TODO create debug command to output this from cli
-	// Debug mode will list all available CRDs for apiVersion
-	// for _, r := range list.APIResources {
-	//	log.Debugf("GVR: %30s %30s %30s", list.GroupVersion, r.Kind,
-	//		fmt.Sprintf("%+v", append([]string{r.Name}, r.ShortNames...)),
-	//	)
-	// }
 
 	return
 }
@@ -380,10 +389,6 @@ func (c *Client) APIResource(apiVersion, kind string) (res *metav1.APIResource, 
 	resource := getApiResourceFromResourceLists(kind, lists)
 	if resource != nil {
 		return resource, nil
-	}
-
-	if c.cachedDiscovery != nil {
-		c.cachedDiscovery.Invalidate()
 	}
 
 	resource = getApiResourceFromResourceLists(kind, lists)
@@ -419,6 +424,7 @@ func (c *Client) GroupVersionResource(apiVersion, kind string) (gvr schema.Group
 
 func (c *Client) discovery() discovery.DiscoveryInterface {
 	if c.cachedDiscovery != nil {
+		fmt.Println("HAS CACHE")
 		return c.cachedDiscovery
 	}
 	return c.Discovery()
