@@ -10,6 +10,7 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	apixv1client "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -382,7 +383,29 @@ func (c *Client) apiResourceList(apiVersion string) (lists []*metav1.APIResource
 //
 // NOTE that fetching with empty apiVersion can give errors if there are non-working
 // api controllers in cluster.
-func (c *Client) APIResource(apiVersion, kind string) (res *metav1.APIResource, err error) {
+func (c *Client) APIResource(apiVersion, kind string) (*metav1.APIResource, error) {
+	resource, err := c.apiResource(apiVersion, kind)
+	if err != nil {
+		fmt.Println("TRY 1 failed", err)
+		if apiErrors.IsNotFound(err) {
+			fmt.Println("TRY 1 NOT FOUND. Invalidate")
+			c.cachedDiscovery.Invalidate()
+			resource, err = c.apiResource(apiVersion, kind)
+			fmt.Println("TRY 2", resource, err)
+		} else {
+			return nil, fmt.Errorf("apiVersion '%s', kind '%s' is not supported by cluster: %w", apiVersion, kind, err)
+		}
+	}
+	fmt.Println("AFTER TRY 2", resource, err)
+	if err != nil {
+		return nil, fmt.Errorf("apiVersion '%s', kind '%s' is not supported by cluster: %w", apiVersion, kind, err)
+	}
+
+	return resource, nil
+
+}
+
+func (c *Client) apiResource(apiVersion, kind string) (res *metav1.APIResource, err error) {
 	lists, err := c.APIResourceList(apiVersion)
 	if err != nil && len(lists) == 0 {
 		// apiVersion is defined and there is a ServerResourcesForGroupVersion error
@@ -390,29 +413,12 @@ func (c *Client) APIResource(apiVersion, kind string) (res *metav1.APIResource, 
 	}
 
 	resource := getApiResourceFromResourceLists(kind, lists)
-	if resource != nil {
-		return resource, nil
-	}
-	fmt.Println("AFTER1: KIND NOT FOUND", kind, resource)
-
-	fmt.Println("INVALIDATE")
-	c.cachedDiscovery.Invalidate()
-
-	resource = getApiResourceFromResourceLists(kind, lists)
-	if resource != nil {
-		fmt.Println("RESOURCE FOUND FOR KIND", kind)
-		return resource, nil
+	if resource == nil {
+		gv, _ := schema.ParseGroupVersion(apiVersion)
+		return nil, apiErrors.NewNotFound(schema.GroupResource{Group: gv.Group, Resource: kind}, "")
 	}
 
-	fmt.Println("AFTER2", resource)
-
-	// If resource is not found, append additional error, may be the custom API of the resource is not available.
-	additionalErr := ""
-	if err != nil {
-		additionalErr = fmt.Sprintf(", additional error: %s", err.Error())
-	}
-	err = fmt.Errorf("apiVersion '%s', kind '%s' is not supported by cluster%s", apiVersion, kind, additionalErr)
-	return nil, err
+	return resource, nil
 }
 
 // GroupVersionResource returns a GroupVersionResource object to use with dynamic informer.
