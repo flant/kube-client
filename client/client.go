@@ -393,17 +393,18 @@ func (c *Client) APIResource(apiVersion, kind string) (res *metav1.APIResource, 
 	if resource != nil {
 		return resource, nil
 	}
-	fmt.Println("AFTER1: KIND NOT FOUND", kind, resource, lists)
+	fmt.Println("AFTER1: KIND NOT FOUND", kind, resource)
 
-	//fmt.Println("INVALIDATE")
-	//c.cachedDiscovery.Invalidate()
-	//
-	//resource = getApiResourceFromResourceLists(kind, lists)
-	//if resource != nil {
-	//	return resource, nil
-	//}
-	//
-	//fmt.Println("AFTER2", resource)
+	fmt.Println("INVALIDATE")
+	c.cachedDiscovery.Invalidate()
+
+	resource = getApiResourceFromResourceLists(kind, lists)
+	if resource != nil {
+		fmt.Println("RESOURCE FOUND FOR KIND", kind)
+		return resource, nil
+	}
+
+	fmt.Println("AFTER2", resource)
 
 	// If resource is not found, append additional error, may be the custom API of the resource is not available.
 	additionalErr := ""
