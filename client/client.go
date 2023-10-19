@@ -331,13 +331,14 @@ func getInClusterConfig() (config *rest.Config, defaultNs string, err error) {
 func (c *Client) APIResourceList(apiVersion string) (lists []*metav1.APIResourceList, err error) {
 	lists, err = c.apiResourceList(apiVersion)
 	if err != nil {
-		fmt.Println("KUBEERR2", err, reflect.TypeOf(err), reflect.TypeOf(errors.Unwrap(err)))
-		if apierrors.IsNotFound(errors.Unwrap(err)) {
+		fmt.Println("KUBEERR2", err, reflect.TypeOf(err), errors.Cause(err), reflect.TypeOf(errors.Unwrap(err)))
+
+		if apierrors.IsNotFound(errors.Cause(err)) {
 			fmt.Println("INVALIDATE LIST")
 			c.cachedDiscovery.Invalidate()
 			return c.apiResourceList(apiVersion)
 		} else {
-			fmt.Println("Unknown error type", reflect.TypeOf(err), reflect.TypeOf(errors.Unwrap(err)))
+			fmt.Println("Unknown error type", reflect.TypeOf(err), reflect.TypeOf(errors.Cause(err)))
 		}
 
 		return nil, err
@@ -369,6 +370,7 @@ func (c *Client) apiResourceList(apiVersion string) (lists []*metav1.APIResource
 
 		list, err := c.discovery().ServerResourcesForGroupVersion(gv.String())
 		if err != nil {
+			fmt.Println("KUBEERR1", reflect.TypeOf(err))
 			return nil, errors.Wrapf(err, "apiVersion '%s' has no supported resources in cluster", apiVersion)
 		}
 		lists = []*metav1.APIResourceList{list}
