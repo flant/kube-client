@@ -369,6 +369,7 @@ func (c *Client) apiResourceList(apiVersion string) (lists []*metav1.APIResource
 			fmt.Println("KUBEERR1", err, reflect.TypeOf(err))
 			return nil, errors.Wrapf(err, "apiVersion '%s' has no supported resources in cluster", apiVersion)
 		}
+		fmt.Println("AFTER LIST SEARCH")
 		lists = []*metav1.APIResourceList{list}
 	}
 
@@ -386,15 +387,25 @@ func (c *Client) APIResource(apiVersion, kind string) (res *metav1.APIResource, 
 		return nil, err
 	}
 
+	fmt.Println("LISTS", lists, err)
+
+	fmt.Println("KIND", kind)
+
 	resource := getApiResourceFromResourceLists(kind, lists)
 	if resource != nil {
 		return resource, nil
 	}
+	fmt.Println("AFTER1", resource)
+
+	fmt.Println("INVALIDATE")
+	c.cachedDiscovery.Invalidate()
 
 	resource = getApiResourceFromResourceLists(kind, lists)
 	if resource != nil {
 		return resource, nil
 	}
+
+	fmt.Println("AFTER2", resource)
 
 	// If resource is not found, append additional error, may be the custom API of the resource is not available.
 	additionalErr := ""
