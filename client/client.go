@@ -394,7 +394,6 @@ func (c *Client) APIResource(apiVersion, kind string) (*metav1.APIResource, erro
 	}
 
 	return resource, nil
-
 }
 
 func (c *Client) apiResource(apiVersion, kind string) (res *metav1.APIResource, err error) {
