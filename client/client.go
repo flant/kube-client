@@ -3,7 +3,6 @@ package client
 import (
 	"fmt"
 	"os"
-	"reflect"
 	"strings"
 	"time"
 
@@ -331,14 +330,10 @@ func getInClusterConfig() (config *rest.Config, defaultNs string, err error) {
 func (c *Client) APIResourceList(apiVersion string) (lists []*metav1.APIResourceList, err error) {
 	lists, err = c.apiResourceList(apiVersion)
 	if err != nil {
-		fmt.Println("KUBEERR2", err, reflect.TypeOf(err), errors.Cause(err), reflect.TypeOf(errors.Unwrap(err)))
 		if errors.Cause(err).Error() == "not found" {
 			// *errors.errorString type is here, we can't check it another way
-			fmt.Println("INVALIDATE LIST")
 			c.cachedDiscovery.Invalidate()
 			return c.apiResourceList(apiVersion)
-		} else {
-			fmt.Println("Unknown apiResourceList error:", errors.Cause(err))
 		}
 
 		return nil, err
@@ -380,23 +375,20 @@ func (c *Client) apiResourceList(apiVersion string) (lists []*metav1.APIResource
 }
 
 // APIResource fetches APIResource object from cluster that specifies the name of a resource and whether it is namespaced.
+// if resource not found, we try to invalidate cache and
 //
 // NOTE that fetching with empty apiVersion can give errors if there are non-working
 // api controllers in cluster.
 func (c *Client) APIResource(apiVersion, kind string) (*metav1.APIResource, error) {
 	resource, err := c.apiResource(apiVersion, kind)
 	if err != nil {
-		fmt.Println("TRY 1 failed", err)
 		if apiErrors.IsNotFound(err) {
-			fmt.Println("TRY 1 NOT FOUND. Invalidate")
 			c.cachedDiscovery.Invalidate()
 			resource, err = c.apiResource(apiVersion, kind)
-			fmt.Println("TRY 2", resource, err)
 		} else {
 			return nil, fmt.Errorf("apiVersion '%s', kind '%s' is not supported by cluster: %w", apiVersion, kind, err)
 		}
 	}
-	fmt.Println("AFTER TRY 2", resource, err)
 	if err != nil {
 		return nil, fmt.Errorf("apiVersion '%s', kind '%s' is not supported by cluster: %w", apiVersion, kind, err)
 	}
