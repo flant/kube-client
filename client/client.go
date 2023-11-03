@@ -336,7 +336,7 @@ func (c *Client) APIResourceList(apiVersion string) (lists []*metav1.APIResource
 			return c.apiResourceList(apiVersion)
 		}
 
-		return nil, err
+		return lists, err
 	}
 
 	return lists, nil
