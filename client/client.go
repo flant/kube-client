@@ -330,7 +330,7 @@ func getInClusterConfig() (config *rest.Config, defaultNs string, err error) {
 func (c *Client) APIResourceList(apiVersion string) (lists []*metav1.APIResourceList, err error) {
 	lists, err = c.apiResourceList(apiVersion)
 	if err != nil {
-		if errors.Cause(err).Error() == "not found" {
+		if strings.Contains(err.Error(), "not found") {
 			// *errors.errorString type is here, we can't check it another way
 			c.cachedDiscovery.Invalidate()
 			return c.apiResourceList(apiVersion)
