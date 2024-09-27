@@ -25,7 +25,7 @@ type Cluster struct {
 
 func NewFakeCluster(ver ClusterVersion) *Cluster {
 	if ver == "" {
-		ver = ClusterVersionV125
+		ver = ClusterVersionV127
 	}
 	cres := ClusterResources(ver)
 
