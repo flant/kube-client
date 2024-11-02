@@ -1,4 +1,4 @@
-// Package klogtolog overrides output writer for klog to log messages with logrus.
+// Package klogtolog overrides output writer for klog to log messages with log.
 //
 // Usage:
 //
