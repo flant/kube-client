@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/deckhouse/deckhouse/pkg/log"
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 	apixv1client "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -27,7 +27,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/metrics"
 
-	_ "github.com/flant/kube-client/klogtologrus" // route klog messages from client-go to logrus
+	_ "github.com/flant/kube-client/klogtolog" // route klog messages from client-go to log
 )
 
 const (
@@ -125,7 +125,8 @@ func (c *Client) RestConfig() *rest.Config {
 }
 
 func (c *Client) Init() error {
-	logEntry := log.WithField("operator.component", "KubernetesAPIClient")
+	logger := log.NewLogger(log.Options{})
+	logger = logger.With("operator.component", "KubernetesAPIClient")
 
 	var err error
 	var config *rest.Config
@@ -145,18 +146,18 @@ func (c *Client) Init() error {
 					if c.configPath != "" || c.contextName != "" {
 						if outOfClusterErr != nil {
 							err = fmt.Errorf("out-of-cluster config error: %v, in-cluster config error: %v", outOfClusterErr, err)
-							logEntry.Errorf("configuration problems: %s", err)
+							logger.Errorf("configuration problems: %s", err)
 							return err
 						}
 						return fmt.Errorf("in-cluster config is not found")
 					}
-					logEntry.Errorf("in-cluster problem: %s", err)
+					logger.Errorf("in-cluster problem: %s", err)
 					return err
 				}
 			} else {
 				// if not in cluster return outOfCluster error
 				if outOfClusterErr != nil {
-					logEntry.Errorf("out-of-cluster problem: %s", outOfClusterErr)
+					logger.Errorf("out-of-cluster problem: %s", outOfClusterErr)
 					return outOfClusterErr
 				}
 				return fmt.Errorf("no kubernetes client config found")
@@ -182,7 +183,7 @@ func (c *Client) Init() error {
 
 	c.Interface, err = kubernetes.NewForConfig(config)
 	if err != nil {
-		logEntry.Errorf("configuration problem: %s", err)
+		logger.Errorf("configuration problem: %s", err)
 		return err
 	}
 
@@ -226,7 +227,7 @@ func (c *Client) Init() error {
 	}
 
 	c.restConfig = config
-	logEntry.Infof("Kubernetes client is configured successfully with '%s' config", configType)
+	logger.Infof("Kubernetes client is configured successfully with '%s' config", configType)
 
 	return nil
 }

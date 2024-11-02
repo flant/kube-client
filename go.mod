@@ -1,15 +1,15 @@
 module github.com/flant/kube-client
 
-go 1.21
+go 1.22.8
 
 toolchain go1.23.1
 
 require (
+	github.com/deckhouse/deckhouse/pkg/log v0.0.0-20241102110904-83c5e473e0ca
 	github.com/onsi/gomega v1.29.0
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.16.0
-	github.com/sirupsen/logrus v1.9.0
-	github.com/stretchr/testify v1.8.4
+	github.com/stretchr/testify v1.9.0
 	k8s.io/api v0.29.8
 	k8s.io/apiextensions-apiserver v0.28.4
 	k8s.io/apimachinery v0.29.8
@@ -19,6 +19,7 @@ require (
 )
 
 require (
+	github.com/DataDog/gostackparse v0.7.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
