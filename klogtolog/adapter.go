@@ -1,11 +1,11 @@
-// Package klogtologrus overrides output writer for klog to log messages with logrus.
+// Package klogtolog overrides output writer for klog to log messages with logrus.
 //
 // Usage:
 //
 //	import (
-//	  _ "github.com/flant/kube-client/klogtologrus"
+//	  _ "github.com/flant/kube-client/klogtolog"
 //	)
-package klogtologrus
+package klogtolog
 
 import (
 	"flag"

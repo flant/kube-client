@@ -27,7 +27,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/metrics"
 
-	_ "github.com/flant/kube-client/klogtologrus" // route klog messages from client-go to logrus
+	_ "github.com/flant/kube-client/klogtolog" // route klog messages from client-go to logrus
 )
 
 const (

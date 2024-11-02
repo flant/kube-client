@@ -13,8 +13,8 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gbytes"
 
-	"github.com/flant/kube-client/klogtologrus"
-	"github.com/flant/kube-client/klogtologrus/test/service"
+	klogtolog "github.com/flant/kube-client/klogtolog"
+	"github.com/flant/kube-client/klogtolog/test/service"
 )
 
 // Test that adapter is working through default import in another package
@@ -25,7 +25,7 @@ func Test_adapter_catches_klog_WarnInfoError(t *testing.T) {
 
 	logger := log.NewLogger(log.Options{})
 	logger.SetOutput(buf)
-	klogtologrus.InitAdapter(false, logger)
+	klogtolog.InitAdapter(false, logger)
 
 	tests := []struct {
 		level string
