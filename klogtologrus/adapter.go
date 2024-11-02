@@ -10,11 +10,11 @@ package klogtologrus
 import (
 	"flag"
 
-	log "github.com/sirupsen/logrus"
+	log "github.com/deckhouse/deckhouse/pkg/log"
 	"k8s.io/klog/v2"
 )
 
-func InitAdapter(enableDebug bool) {
+func InitAdapter(enableDebug bool, logger *log.Logger) {
 	// - turn off logging to stderr
 	// - default stderr threshold is ERROR and it outputs errors to stderr, set it to FATAL
 	// - set writer for INFO severity to catch all messages
@@ -30,11 +30,11 @@ func InitAdapter(enableDebug bool) {
 	}
 
 	_ = klogFlagSet.Parse(args)
-	klog.SetOutputBySeverity("INFO", &writer{logger: log.WithField("source", "klog")})
+	klog.SetOutputBySeverity("INFO", &writer{logger: logger.With("source", "klog")})
 }
 
 type writer struct {
-	logger *log.Entry
+	logger *log.Logger
 }
 
 func (w *writer) Write(msg []byte) (n int, err error) {

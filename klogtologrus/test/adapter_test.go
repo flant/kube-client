@@ -5,14 +5,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"sync"
 	"testing"
 
+	log "github.com/deckhouse/deckhouse/pkg/log"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gbytes"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/flant/kube-client/klogtologrus"
 	"github.com/flant/kube-client/klogtologrus/test/service"
@@ -24,16 +23,16 @@ func Test_adapter_catches_klog_WarnInfoError(t *testing.T) {
 
 	buf := gbytes.NewBuffer()
 
-	log.SetOutput(buf)
-	log.SetFormatter(&log.JSONFormatter{DisableTimestamp: true})
-	klogtologrus.InitAdapter(false)
+	logger := log.NewLogger(log.Options{})
+	logger.SetOutput(buf)
+	klogtologrus.InitAdapter(false, logger)
 
 	tests := []struct {
 		level string
 		msg   string
 	}{
 		{
-			"warning",
+			"warn",
 			"Warning from klog powered lib",
 		},
 		{
@@ -75,7 +74,8 @@ func Test_adapter_catches_klog_WarnInfoError(t *testing.T) {
 func Test_klog_should_not_output_to_Stderr(t *testing.T) {
 	g := NewWithT(t)
 
-	log.SetOutput(io.Discard)
+	logger := log.NewNop()
+	log.SetDefault(logger)
 
 	stderr := captureStderr(func() {
 		fmt.Fprintf(os.Stderr, "asdasdasd")
