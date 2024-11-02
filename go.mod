@@ -1,6 +1,6 @@
 module github.com/flant/kube-client
 
-go 1.22.8
+go 1.23.1
 
 require (
 	github.com/deckhouse/deckhouse/pkg/log v0.0.0-20241102110904-83c5e473e0ca
