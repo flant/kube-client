@@ -39,7 +39,7 @@ const (
 // TODO: refactor with methods
 func New(logger *log.Logger) *Client {
 	return &Client{
-		logger: logger,
+		logger: logger.With("operator.component", "KubernetesAPIClient"),
 	}
 }
 
@@ -131,8 +131,9 @@ func (c *Client) RestConfig() *rest.Config {
 }
 
 func (c *Client) Init() error {
-	logger := log.NewLogger(log.Options{})
-	logger = logger.With("operator.component", "KubernetesAPIClient")
+	if c.logger == nil {
+		c.logger = log.NewLogger(log.Options{}).With("operator.component", "KubernetesAPIClient")
+	}
 
 	var err error
 	var config *rest.Config
@@ -152,18 +153,18 @@ func (c *Client) Init() error {
 					if c.configPath != "" || c.contextName != "" {
 						if outOfClusterErr != nil {
 							err = fmt.Errorf("out-of-cluster config error: %v, in-cluster config error: %v", outOfClusterErr, err)
-							logger.Error("configuration problems", slog.String("error", err.Error()))
+							c.logger.Error("configuration problems", slog.String("error", err.Error()))
 							return err
 						}
 						return fmt.Errorf("in-cluster config is not found")
 					}
-					logger.Error("in-cluster problem", slog.String("error", err.Error()))
+					c.logger.Error("in-cluster problem", slog.String("error", err.Error()))
 					return err
 				}
 			} else {
 				// if not in cluster return outOfCluster error
 				if outOfClusterErr != nil {
-					logger.Error("out-of-cluster problem", slog.String("error", outOfClusterErr.Error()))
+					c.logger.Error("out-of-cluster problem", slog.String("error", outOfClusterErr.Error()))
 					return outOfClusterErr
 				}
 				return fmt.Errorf("no kubernetes client config found")
@@ -189,7 +190,7 @@ func (c *Client) Init() error {
 
 	c.Interface, err = kubernetes.NewForConfig(config)
 	if err != nil {
-		logger.Error("configuration problem", slog.String("error", err.Error()))
+		c.logger.Error("configuration problem", slog.String("error", err.Error()))
 		return err
 	}
 
@@ -233,7 +234,7 @@ func (c *Client) Init() error {
 	}
 
 	c.restConfig = config
-	logger.Debug("Kubernetes client is configured successfully with config", slog.String("config", configType))
+	c.logger.Debug("Kubernetes client is configured successfully with config", slog.String("config", configType))
 
 	return nil
 }
