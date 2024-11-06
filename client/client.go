@@ -36,11 +36,27 @@ const (
 	kubeNamespaceFilePath = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
 )
 
-// TODO: refactor with methods
-func New(logger *log.Logger) *Client {
-	return &Client{
-		logger: logger.With("operator.component", "KubernetesAPIClient"),
+type Option func(client *Client)
+
+func WithLogger(logger *log.Logger) Option {
+	return func(client *Client) {
+		client.logger = logger.With("operator.component", "KubernetesAPIClient")
 	}
+}
+
+// TODO: refactor all "with" methods
+func New(opts ...Option) *Client {
+	c := &Client{}
+
+	for _, fn := range opts {
+		fn(c)
+	}
+
+	if c.logger == nil {
+		c.logger = log.NewLogger(log.Options{}).Named("kubernetes-api-client").With("operator.component", "KubernetesAPIClient")
+	}
+
+	return c
 }
 
 func NewFake(gvr map[schema.GroupVersionResource]string) *Client {
