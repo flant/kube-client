@@ -2,6 +2,7 @@ package client
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -148,18 +149,18 @@ func (c *Client) Init() error {
 					if c.configPath != "" || c.contextName != "" {
 						if outOfClusterErr != nil {
 							err = fmt.Errorf("out-of-cluster config error: %v, in-cluster config error: %v", outOfClusterErr, err)
-							logger.Errorf("configuration problems: %s", err)
+							logger.Error("configuration problems", slog.String("error", err.Error()))
 							return err
 						}
 						return fmt.Errorf("in-cluster config is not found")
 					}
-					logger.Errorf("in-cluster problem: %s", err)
+					logger.Error("in-cluster problem", slog.String("error", err.Error()))
 					return err
 				}
 			} else {
 				// if not in cluster return outOfCluster error
 				if outOfClusterErr != nil {
-					logger.Errorf("out-of-cluster problem: %s", outOfClusterErr)
+					logger.Error("out-of-cluster problem", slog.String("error", outOfClusterErr.Error()))
 					return outOfClusterErr
 				}
 				return fmt.Errorf("no kubernetes client config found")
@@ -185,7 +186,7 @@ func (c *Client) Init() error {
 
 	c.Interface, err = kubernetes.NewForConfig(config)
 	if err != nil {
-		logger.Errorf("configuration problem: %s", err)
+		logger.Error("configuration problem", slog.String("error", err.Error()))
 		return err
 	}
 
@@ -229,7 +230,7 @@ func (c *Client) Init() error {
 	}
 
 	c.restConfig = config
-	logger.Debugf("Kubernetes client is configured successfully with '%s' config", configType)
+	logger.Debug("Kubernetes client is configured successfully with config", slog.String("config", configType))
 
 	return nil
 }
