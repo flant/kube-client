@@ -35,6 +35,8 @@ const (
 	kubeNamespaceFilePath = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
 )
 
+// TODO: refactor with methods
+// add logger to client when create
 func New() *Client {
 	return &Client{}
 }
@@ -227,7 +229,7 @@ func (c *Client) Init() error {
 	}
 
 	c.restConfig = config
-	logger.Infof("Kubernetes client is configured successfully with '%s' config", configType)
+	logger.Debugf("Kubernetes client is configured successfully with '%s' config", configType)
 
 	return nil
 }
