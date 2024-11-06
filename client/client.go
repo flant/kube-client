@@ -37,9 +37,10 @@ const (
 )
 
 // TODO: refactor with methods
-// add logger to client when create
-func New() *Client {
-	return &Client{}
+func New(logger *log.Logger) *Client {
+	return &Client{
+		logger: logger,
+	}
 }
 
 func NewFake(gvr map[schema.GroupVersionResource]string) *Client {
@@ -50,6 +51,7 @@ func NewFake(gvr map[schema.GroupVersionResource]string) *Client {
 		dynamicClient:    fakedynamic.NewSimpleDynamicClientWithCustomListKinds(sc, gvr),
 		metadataClient:   fakemetadata.NewSimpleMetadataClient(sc),
 		schema:           sc,
+		logger:           log.NewNop(),
 	}
 }
 
@@ -70,6 +72,7 @@ type Client struct {
 	metricLabels     map[string]string
 	schema           *runtime.Scheme
 	restConfig       *rest.Config
+	logger           *log.Logger
 }
 
 // ReloadDynamic creates new dynamic client with the new set of CRDs.
