@@ -39,7 +39,7 @@ const (
 // TODO: refactor with methods
 func New(logger *log.Logger) *Client {
 	return &Client{
-		logger: logger.Named("kubernetes-api-client").With("operator.component", "KubernetesAPIClient"),
+		logger: logger.With("operator.component", "KubernetesAPIClient"),
 	}
 }
 
