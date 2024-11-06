@@ -39,7 +39,7 @@ const (
 // TODO: refactor with methods
 func New(logger *log.Logger) *Client {
 	return &Client{
-		logger: logger.With("operator.component", "KubernetesAPIClient"),
+		logger: logger.Named("kubernetes-api-client").With("operator.component", "KubernetesAPIClient"),
 	}
 }
 
@@ -132,7 +132,7 @@ func (c *Client) RestConfig() *rest.Config {
 
 func (c *Client) Init() error {
 	if c.logger == nil {
-		c.logger = log.NewLogger(log.Options{}).With("operator.component", "KubernetesAPIClient")
+		c.logger = log.NewLogger(log.Options{}).Named("kubernetes-api-client").With("operator.component", "KubernetesAPIClient")
 	}
 
 	var err error
