@@ -5,7 +5,7 @@ go 1.22.8
 toolchain go1.23.1
 
 require (
-	github.com/deckhouse/deckhouse/pkg/log v0.0.0-20241102110904-83c5e473e0ca
+	github.com/deckhouse/deckhouse/pkg/log v0.0.0-20241106140903-258b93b3334e
 	github.com/onsi/gomega v1.29.0
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.16.0

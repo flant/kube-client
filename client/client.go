@@ -2,6 +2,7 @@ package client
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -35,8 +36,27 @@ const (
 	kubeNamespaceFilePath = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
 )
 
-func New() *Client {
-	return &Client{}
+type Option func(client *Client)
+
+func WithLogger(logger *log.Logger) Option {
+	return func(client *Client) {
+		client.logger = logger.With("operator.component", "KubernetesAPIClient")
+	}
+}
+
+// TODO: refactor all "with" methods
+func New(opts ...Option) *Client {
+	c := &Client{}
+
+	for _, fn := range opts {
+		fn(c)
+	}
+
+	if c.logger == nil {
+		c.logger = log.NewLogger(log.Options{}).Named("kubernetes-api-client").With("operator.component", "KubernetesAPIClient")
+	}
+
+	return c
 }
 
 func NewFake(gvr map[schema.GroupVersionResource]string) *Client {
@@ -47,6 +67,7 @@ func NewFake(gvr map[schema.GroupVersionResource]string) *Client {
 		dynamicClient:    fakedynamic.NewSimpleDynamicClientWithCustomListKinds(sc, gvr),
 		metadataClient:   fakemetadata.NewSimpleMetadataClient(sc),
 		schema:           sc,
+		logger:           log.NewNop(),
 	}
 }
 
@@ -67,6 +88,7 @@ type Client struct {
 	metricLabels     map[string]string
 	schema           *runtime.Scheme
 	restConfig       *rest.Config
+	logger           *log.Logger
 }
 
 // ReloadDynamic creates new dynamic client with the new set of CRDs.
@@ -125,8 +147,9 @@ func (c *Client) RestConfig() *rest.Config {
 }
 
 func (c *Client) Init() error {
-	logger := log.NewLogger(log.Options{})
-	logger = logger.With("operator.component", "KubernetesAPIClient")
+	if c.logger == nil {
+		c.logger = log.NewLogger(log.Options{}).Named("kubernetes-api-client").With("operator.component", "KubernetesAPIClient")
+	}
 
 	var err error
 	var config *rest.Config
@@ -146,18 +169,18 @@ func (c *Client) Init() error {
 					if c.configPath != "" || c.contextName != "" {
 						if outOfClusterErr != nil {
 							err = fmt.Errorf("out-of-cluster config error: %v, in-cluster config error: %v", outOfClusterErr, err)
-							logger.Errorf("configuration problems: %s", err)
+							c.logger.Error("configuration problems", slog.String("error", err.Error()))
 							return err
 						}
 						return fmt.Errorf("in-cluster config is not found")
 					}
-					logger.Errorf("in-cluster problem: %s", err)
+					c.logger.Error("in-cluster problem", slog.String("error", err.Error()))
 					return err
 				}
 			} else {
 				// if not in cluster return outOfCluster error
 				if outOfClusterErr != nil {
-					logger.Errorf("out-of-cluster problem: %s", outOfClusterErr)
+					c.logger.Error("out-of-cluster problem", slog.String("error", outOfClusterErr.Error()))
 					return outOfClusterErr
 				}
 				return fmt.Errorf("no kubernetes client config found")
@@ -183,7 +206,7 @@ func (c *Client) Init() error {
 
 	c.Interface, err = kubernetes.NewForConfig(config)
 	if err != nil {
-		logger.Errorf("configuration problem: %s", err)
+		c.logger.Error("configuration problem", slog.String("error", err.Error()))
 		return err
 	}
 
@@ -227,7 +250,7 @@ func (c *Client) Init() error {
 	}
 
 	c.restConfig = config
-	logger.Infof("Kubernetes client is configured successfully with '%s' config", configType)
+	c.logger.Debug("Kubernetes client is configured successfully with config", slog.String("config", configType))
 
 	return nil
 }
