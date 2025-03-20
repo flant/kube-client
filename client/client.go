@@ -11,9 +11,11 @@ import (
 	"github.com/pkg/errors"
 	apixv1client "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/cli-runtime/pkg/resource"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/discovery/cached/disk"
 	"k8s.io/client-go/discovery/cached/memory"
@@ -26,6 +28,7 @@ import (
 	fakemetadata "k8s.io/client-go/metadata/fake"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp" // load the gcp plugin (only required to authenticate against GKE clusters)
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/metrics"
 
@@ -518,4 +521,31 @@ func getApiResourceFromResourceLists(kind string, resourceLists []*metav1.APIRes
 	}
 
 	return nil
+}
+
+// ToXXX functions implements https://pkg.go.dev/k8s.io/cli-runtime/pkg/genericclioptions#RESTClientGetter interface
+
+func (c *Client) ToRESTConfig() (*rest.Config, error) {
+	return c.restConfig, nil
+}
+
+func (c *Client) ToDiscoveryClient() (discovery.CachedDiscoveryInterface, error) {
+	return c.cachedDiscovery, nil
+}
+
+func (c *Client) ToRawKubeConfigLoader() clientcmd.ClientConfig {
+	return getClientConfig(c.contextName, c.configPath)
+}
+
+func (c *Client) ToRESTMapper() (meta.RESTMapper, error) {
+	mapper := restmapper.NewDeferredDiscoveryRESTMapper(c.cachedDiscovery)
+	expander := restmapper.NewShortcutExpander(mapper, c.cachedDiscovery,
+		func(warning string) {
+			c.logger.Warn("warning", slog.String("warning", warning))
+		})
+	return expander, nil
+}
+
+func (c *Client) NewBuilder() *resource.Builder {
+	return resource.NewBuilder(c)
 }
