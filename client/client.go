@@ -504,6 +504,7 @@ func getApiResourceFromResourceLists(kind string, resourceLists []*metav1.APIRes
 
 	return nil
 }
+
 // ToXXX functions implements https://pkg.go.dev/k8s.io/cli-runtime/pkg/genericclioptions#RESTClientGetter interface
 
 func (c *Client) ToRESTConfig() (*rest.Config, error) {
