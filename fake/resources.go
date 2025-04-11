@@ -57,6 +57,8 @@ func ClusterResources(version ClusterVersion) []*metav1.APIResourceList {
 		return v129ClusterResources
 	case ClusterVersionV130:
 		return v130ClusterResources
+	case ClusterVersionV131:
+		return v131ClusterResources
 	}
 
 	return nil
@@ -81,6 +83,7 @@ const (
 	ClusterVersionV128 ClusterVersion = "v1.28.0"
 	ClusterVersionV129 ClusterVersion = "v1.29.0"
 	ClusterVersionV130 ClusterVersion = "v1.30.0"
+	ClusterVersionV131 ClusterVersion = "v1.31.0"
 )
 
 func (cv ClusterVersion) String() string {
