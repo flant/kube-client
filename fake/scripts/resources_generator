@@ -98,7 +98,7 @@ fi
 
 readarray -t api_versions < <(kubectl get --raw /apis | jq -r '.groups[].versions[].groupVersion')
 readarray -t namespaces < <(kubectl get ns --no-headers | awk '{print $1}')
-serverVersion=$(kubectl version --short | grep Server | awk '{print $3}' | cut -c 1,2,4,5)
+serverVersion=$(kubectl version | grep Server | awk '{print $3}' | cut -c 1,2,4,5)
 
 resFile=${serverVersion}_resources.go
 
