@@ -42,6 +42,15 @@ type writer struct {
 var klogRe = regexp.MustCompile(`^.* .*  .* (.*\d+)\] (.*)\n$`)
 
 // examples
+//
+// from this
+//
+// I0704 19:13:35.888843  135000 lib_methods.go:12] Info from klog powered lib\n
+// W0704 19:13:35.888120  135000 lib_methods.go:8] Warning from klog powered lib\n
+// E0704 19:13:35.888852  135000 adapter_test.go:48] Error from klog powered lib\n
+//
+// to this
+//
 // {"level":"warn","msg":"Warning from klog powered lib (lib_methods.go:8)","file_and_line":"lib_methods.go:8","time":"2025-07-04T19:39:28+03:00"}
 // {"level":"info","msg":"Info from klog powered lib (lib_methods.go:12)","file_and_line":"lib_methods.go:12","time":"2025-07-04T19:39:28+03:00"}
 // {"level":"error","msg":"Error from klog powered lib (adapter_test.go:48)","file_and_line":"adapter_test.go:48", "stacktrace": ... ,"time":"2025-07-04T19:39:28+03:00"}
