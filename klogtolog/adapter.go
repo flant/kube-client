@@ -9,7 +9,6 @@ package klogtolog
 
 import (
 	"flag"
-	"log/slog"
 	"regexp"
 
 	log "github.com/deckhouse/deckhouse/pkg/log"
@@ -55,13 +54,18 @@ var klogRe = regexp.MustCompile(`^.* .*  .* (.*\d+)\] (.*)\n$`)
 // {"level":"info","msg":"Info from klog powered lib (lib_methods.go:12)","file_and_line":"lib_methods.go:12","time":"2025-07-04T19:39:28+03:00"}
 // {"level":"error","msg":"Error from klog powered lib (adapter_test.go:48)","file_and_line":"adapter_test.go:48", "stacktrace": ... ,"time":"2025-07-04T19:39:28+03:00"}
 func (w *writer) Write(msg []byte) (n int, err error) {
+	logger := w.logger
+
 	groups := klogRe.FindStringSubmatch(string(msg))
 
-	logger := w.logger.With(
-		slog.String("file_and_line", groups[1]),
-	)
+	var message string
+	if len(groups) > 2 {
+		logger = logger.With("file_and_line", groups[1])
 
-	message := groups[2] + " (" + groups[1] + ")"
+		message = groups[2] + " (" + groups[1] + ")"
+	} else {
+		message = string(msg)
+	}
 
 	switch msg[0] {
 	case 'W':
