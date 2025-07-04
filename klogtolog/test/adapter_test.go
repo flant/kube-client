@@ -23,7 +23,7 @@ func Test_adapter_catches_klog_WarnInfoError(t *testing.T) {
 
 	buf := gbytes.NewBuffer()
 
-	logger := log.NewLogger(log.Options{})
+	logger := log.NewLogger()
 	logger.SetOutput(buf)
 	klogtolog.InitAdapter(false, logger)
 
