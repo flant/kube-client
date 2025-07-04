@@ -9,6 +9,8 @@ package klogtolog
 
 import (
 	"flag"
+	"log/slog"
+	"regexp"
 
 	log "github.com/deckhouse/deckhouse/pkg/log"
 	"k8s.io/klog/v2"
@@ -37,16 +39,26 @@ type writer struct {
 	logger *log.Logger
 }
 
+var klogRe = regexp.MustCompile(`^.* .*  .* (.*\d+)\] (.*)\n$`)
+
 func (w *writer) Write(msg []byte) (n int, err error) {
+	groups := klogRe.FindStringSubmatch(string(msg))
+
+	logger := w.logger.With(
+		slog.String("file_and_line", groups[1]),
+	)
+
+	message := groups[2] + " (" + groups[1] + ")"
+
 	switch msg[0] {
 	case 'W':
-		w.logger.Warn(string(msg))
+		logger.Warn(message)
 	case 'E':
-		w.logger.Error(string(msg))
+		logger.Error(message)
 	case 'F':
-		w.logger.Fatal(string(msg))
+		logger.Fatal(message)
 	default:
-		w.logger.Info(string(msg))
+		logger.Info(message)
 	}
 	return 0, nil
 }
