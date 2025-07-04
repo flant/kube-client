@@ -23,7 +23,7 @@ func Test_adapter_catches_klog_WarnInfoError(t *testing.T) {
 
 	buf := gbytes.NewBuffer()
 
-	logger := log.NewLogger(log.Options{})
+	logger := log.NewLogger()
 	logger.SetOutput(buf)
 	klogtolog.InitAdapter(false, logger)
 
@@ -59,7 +59,8 @@ func Test_adapter_catches_klog_WarnInfoError(t *testing.T) {
 	for i, line := range lines {
 		tt := tests[i]
 
-		var record map[string]string
+		// not map[string]string because we have nested stacktrace
+		var record map[string]interface{}
 		err := json.Unmarshal([]byte(line), &record)
 		g.Expect(err).ShouldNot(HaveOccurred(), line, "log line should be a valid JSON")
 

@@ -3,7 +3,7 @@ module github.com/flant/kube-client
 go 1.23.8
 
 require (
-	github.com/deckhouse/deckhouse/pkg/log v0.0.0-20241106140903-258b93b3334e
+	github.com/deckhouse/deckhouse/pkg/log v0.0.0-20250704135428-7600b0581807
 	github.com/onsi/gomega v1.31.0
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.16.0

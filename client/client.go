@@ -56,7 +56,7 @@ func New(opts ...Option) *Client {
 	}
 
 	if c.logger == nil {
-		c.logger = log.NewLogger(log.Options{}).Named("kubernetes-api-client").With("operator.component", "KubernetesAPIClient")
+		c.logger = log.NewLogger().Named("kubernetes-api-client").With("operator.component", "KubernetesAPIClient")
 	}
 
 	return c
@@ -151,7 +151,7 @@ func (c *Client) RestConfig() *rest.Config {
 
 func (c *Client) Init() error {
 	if c.logger == nil {
-		c.logger = log.NewLogger(log.Options{}).Named("kubernetes-api-client").With("operator.component", "KubernetesAPIClient")
+		c.logger = log.NewLogger().Named("kubernetes-api-client").With("operator.component", "KubernetesAPIClient")
 	}
 
 	var err error
