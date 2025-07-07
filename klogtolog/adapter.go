@@ -9,6 +9,7 @@ package klogtolog
 
 import (
 	"flag"
+	"regexp"
 
 	log "github.com/deckhouse/deckhouse/pkg/log"
 	"k8s.io/klog/v2"
@@ -37,16 +38,44 @@ type writer struct {
 	logger *log.Logger
 }
 
+var klogRe = regexp.MustCompile(`^.* .*  .* (.*\d+)\] (.*)\n$`)
+
+// examples
+//
+// from this
+//
+// I0704 19:13:35.888843  135000 lib_methods.go:12] Info from klog powered lib\n
+// W0704 19:13:35.888120  135000 lib_methods.go:8] Warning from klog powered lib\n
+// E0704 19:13:35.888852  135000 adapter_test.go:48] Error from klog powered lib\n
+//
+// to this
+//
+// {"level":"warn","msg":"Warning from klog powered lib (lib_methods.go:8)","file":"lib_methods.go:8","time":"2025-07-04T19:39:28+03:00"}
+// {"level":"info","msg":"Info from klog powered lib (lib_methods.go:12)","file":"lib_methods.go:12","time":"2025-07-04T19:39:28+03:00"}
+// {"level":"error","msg":"Error from klog powered lib (adapter_test.go:48)","file":"adapter_test.go:48", "stacktrace": ... ,"time":"2025-07-04T19:39:28+03:00"}
 func (w *writer) Write(msg []byte) (n int, err error) {
+	logger := w.logger
+
+	groups := klogRe.FindStringSubmatch(string(msg))
+
+	var message string
+	if len(groups) > 2 {
+		logger = logger.With("file", groups[1])
+
+		message = groups[2] + " (" + groups[1] + ")"
+	} else {
+		message = string(msg)
+	}
+
 	switch msg[0] {
 	case 'W':
-		w.logger.Warn(string(msg))
+		logger.Warn(message)
 	case 'E':
-		w.logger.Error(string(msg))
+		logger.Error(message)
 	case 'F':
-		w.logger.Fatal(string(msg))
+		logger.Fatal(message)
 	default:
-		w.logger.Info(string(msg))
+		logger.Info(message)
 	}
 	return 0, nil
 }
