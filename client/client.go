@@ -244,7 +244,6 @@ func (c *Client) Init() error {
 			return err
 		}
 		c.cachedDiscovery = memory.NewMemCacheClient(discovery)
-
 	} else {
 		c.cachedDiscovery, err = newDiskCachedDiscovery(config)
 		if err != nil {
