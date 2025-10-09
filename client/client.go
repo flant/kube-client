@@ -16,6 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/discovery/cached/disk"
+	"k8s.io/client-go/discovery/cached/memory"
 	fakediscovery "k8s.io/client-go/discovery/fake"
 	"k8s.io/client-go/dynamic"
 	fakedynamic "k8s.io/client-go/dynamic/fake"
@@ -234,25 +235,42 @@ func (c *Client) Init() error {
 		)
 	}
 
-	cacheDiscoveryDir, err := os.MkdirTemp("", "kube-cache-discovery-*")
-	if err != nil {
-		return err
-	}
-
-	cacheHttpDir, err := os.MkdirTemp("", "kube-cache-http-*")
-	if err != nil {
-		return err
-	}
-
-	c.cachedDiscovery, err = disk.NewCachedDiscoveryClientForConfig(config, cacheDiscoveryDir, cacheHttpDir, 10*time.Minute)
-	if err != nil {
-		return err
+	if _, fd := os.LookupEnv(`FLANT_KUBE_CLIENT_IN_MEMORY_DISCOVERY_CACHE`); fd {
+		discovery, err := discovery.NewDiscoveryClientForConfig(config)
+		if err != nil {
+			return err
+		}
+		c.cachedDiscovery = memory.NewMemCacheClient(discovery)
+	} else {
+		c.cachedDiscovery, err = newDiskCachedDiscovery(config)
+		if err != nil {
+			return err
+		}
 	}
 
 	c.restConfig = config
 	c.logger.Debug("Kubernetes client is configured successfully with config", slog.String("config", configType))
 
 	return nil
+}
+
+func newDiskCachedDiscovery(config *rest.Config) (*disk.CachedDiscoveryClient, error) {
+	cacheDiscoveryDir, err := os.MkdirTemp("", "kube-cache-discovery-*")
+	if err != nil {
+		return nil, err
+	}
+
+	cacheHttpDir, err := os.MkdirTemp("", "kube-cache-http-*")
+	if err != nil {
+		return nil, err
+	}
+
+	cachedDiscovery, err := disk.NewCachedDiscoveryClientForConfig(config, cacheDiscoveryDir, cacheHttpDir, 10*time.Minute)
+	if err != nil {
+		return nil, err
+	}
+
+	return cachedDiscovery, nil
 }
 
 func makeOutOfClusterClientConfigError(kubeConfig, kubeContext string, err error) error {
