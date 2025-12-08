@@ -100,6 +100,11 @@ func (c *Client) ReloadDynamic(gvrList map[schema.GroupVersionResource]string) {
 	c.dynamicClient = fakedynamic.NewSimpleDynamicClientWithCustomListKinds(c.schema, gvrList)
 }
 
+// WithRestConfig sets a pre-configured rest.Config for the client
+func (c *Client) WithRestConfig(config *rest.Config) {
+	c.restConfig = config
+}
+
 func (c *Client) WithServer(server string) {
 	c.server = server
 }
@@ -160,7 +165,16 @@ func (c *Client) Init() error {
 	configType := "out-of-cluster"
 	var defaultNs string
 
-	if c.server == "" {
+	switch {
+	case c.restConfig != nil:
+		if c.restConfig.Host == "" {
+			return fmt.Errorf("rest config host can't be empty")
+		}
+
+		config = c.restConfig
+		defaultNs = "default"
+		configType = "rest-config"
+	case c.server == "":
 		// Try to load from kubeconfig in flags or from ~/.kube/config
 		var outOfClusterErr error
 		config, defaultNs, outOfClusterErr = getOutOfClusterConfig(c.contextName, c.configPath)
@@ -191,7 +205,7 @@ func (c *Client) Init() error {
 			}
 			configType = "in-cluster"
 		}
-	} else {
+	default:
 		// use specific server to connect to API
 		config = &rest.Config{
 			Host: c.server,
@@ -201,12 +215,23 @@ func (c *Client) Init() error {
 		configType = "server"
 	}
 
+	if config == nil {
+		return fmt.Errorf("failed to initialize kubernetes client: no valid configuration found")
+	}
+
 	c.defaultNamespace = defaultNs
 
-	config.QPS = c.qps
-	config.Burst = c.burst
+	if c.qps != 0 {
+		config.QPS = c.qps
+	}
 
-	config.Timeout = c.timeout
+	if c.burst != 0 {
+		config.Burst = c.burst
+	}
+
+	if c.timeout != 0 {
+		config.Timeout = c.timeout
+	}
 
 	c.Interface, err = kubernetes.NewForConfig(config)
 	if err != nil {
