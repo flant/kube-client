@@ -93,6 +93,9 @@ type Client struct {
 	schema           *runtime.Scheme
 	restConfig       *rest.Config
 	logger           *log.Logger
+	// acceptOnlyJSONContentType
+	// use only JSON for interactions with kube-api
+	acceptOnlyJSONContentType bool
 }
 
 // ReloadDynamic creates new dynamic client with the new set of CRDs.
@@ -115,6 +118,16 @@ func (c *Client) WithContextName(name string) {
 
 func (c *Client) WithConfigPath(path string) {
 	c.configPath = path
+}
+
+func (c *Client) WithAcceptOnlyJSONContentType(e bool) {
+	c.acceptOnlyJSONContentType = e
+}
+
+func (c *Client) WithLogger(logger *log.Logger) {
+	if logger != nil {
+		c.logger = logger
+	}
 }
 
 func (c *Client) WithRateLimiterSettings(qps float32, burst int) {
@@ -217,6 +230,10 @@ func (c *Client) Init() error {
 
 	if config == nil {
 		return fmt.Errorf("failed to initialize kubernetes client: no valid configuration found")
+	}
+
+	if c.acceptOnlyJSONContentType {
+		config.AcceptContentTypes = "application/json"
 	}
 
 	c.defaultNamespace = defaultNs
