@@ -30,7 +30,7 @@ jobs:
           go mod download
           echo -n "Go modules unpacked size is: " && du -sh $HOME/go/pkg/mod
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v7
         with:
           version: v2.12.2
   codespell:
