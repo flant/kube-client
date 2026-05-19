@@ -1,6 +1,5 @@
 # every push to a branch:
 # - run linter
-# - run linter
 name: Lint
 on:
   pull_request:
@@ -31,9 +30,9 @@ jobs:
           go mod download
           echo -n "Go modules unpacked size is: " && du -sh $HOME/go/pkg/mod
       - name: Run golangci-lint
-        run: |
-          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b . v2.12.2
-          ./golangci-lint run ./...
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v2.12.2
   codespell:
     name: Run codespell
     runs-on: ubuntu-latest
@@ -46,5 +45,4 @@ jobs:
       - name: Run codespell
         run: |
           pip install codespell==v1.17.1
-          codespell --skip=".git,go.mod,go.sum,*.log,*.gif,*.png,*.md" -L witht,eventtypes,uint,uptodate,afterall,keypair
           codespell --skip=".git,go.mod,go.sum,*.log,*.gif,*.png,*.md" -L witht,eventtypes,uint,uptodate,afterall,keypair
