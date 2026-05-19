@@ -404,15 +404,15 @@ func fileExists(path string) (bool, error) {
 	return true, nil
 }
 
-func getOutOfClusterConfig(contextName, configPath string) (config *rest.Config, defaultNs string, err error) {
+func getOutOfClusterConfig(contextName, configPath string) (*rest.Config, string, error) {
 	clientConfig := getClientConfig(contextName, configPath)
 
-	defaultNs, _, err = clientConfig.Namespace()
+	defaultNs, _, err := clientConfig.Namespace()
 	if err != nil {
 		return nil, "", fmt.Errorf("cannot determine default kubernetes namespace: %s", err)
 	}
 
-	config, err = clientConfig.ClientConfig()
+	config, err := clientConfig.ClientConfig()
 	if err != nil {
 		return nil, "", makeOutOfClusterClientConfigError(configPath, contextName, err)
 	}
@@ -428,11 +428,11 @@ func getOutOfClusterConfig(contextName, configPath string) (config *rest.Config,
 	//	Context = rc.CurrentContext
 	// }
 
-	return
+	return config, defaultNs, nil
 }
 
-func getInClusterConfig() (config *rest.Config, defaultNs string, err error) {
-	config, err = rest.InClusterConfig()
+func getInClusterConfig() (*rest.Config, string, error) {
+	config, err := rest.InClusterConfig()
 	if err != nil {
 		return nil, "", fmt.Errorf("in-cluster configuration problem: %s", err)
 	}
@@ -442,9 +442,7 @@ func getInClusterConfig() (config *rest.Config, defaultNs string, err error) {
 		return nil, "", fmt.Errorf("in-cluster configuration problem: cannot determine default kubernetes namespace: error reading %s: %s", kubeNamespaceFilePath, err)
 	}
 
-	defaultNs = string(data)
-
-	return
+	return config, string(data), nil
 }
 
 // APIResourceList fetches lists of APIResource objects from cluster. It returns all preferred
@@ -452,8 +450,8 @@ func getInClusterConfig() (config *rest.Config, defaultNs string, err error) {
 //
 // NOTE that fetching all preferred resources can give errors if there are non-working
 // api controllers in cluster.
-func (c *Client) APIResourceList(apiVersion string) (lists []*metav1.APIResourceList, err error) {
-	lists, err = c.apiResourceList(apiVersion)
+func (c *Client) APIResourceList(apiVersion string) ([]*metav1.APIResourceList, error) {
+	lists, err := c.apiResourceList(apiVersion)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			// *errors.errorString type is here, we can't check it another way
@@ -467,7 +465,7 @@ func (c *Client) APIResourceList(apiVersion string) (lists []*metav1.APIResource
 	return lists, nil
 }
 
-func (c *Client) apiResourceList(apiVersion string) (lists []*metav1.APIResourceList, err error) {
+func (c *Client) apiResourceList(apiVersion string) ([]*metav1.APIResourceList, error) {
 	if apiVersion == "" {
 		// Get all preferred resources.
 		// Can return errors if api controllers are not available.
@@ -481,23 +479,21 @@ func (c *Client) apiResourceList(apiVersion string) (lists []*metav1.APIResource
 		default:
 			return c.discovery().ServerPreferredResources()
 		}
-	} else {
-		// Get only resources for desired group and version
-		gv, err := schema.ParseGroupVersion(apiVersion)
-		if err != nil {
-			return nil, fmt.Errorf("apiVersion '%s' is invalid", apiVersion)
-		}
-
-		list, err := c.discovery().ServerResourcesForGroupVersion(gv.String())
-		if err != nil {
-			// if not found, err has type *errors.errorString here
-			return nil, errors.Wrapf(err, "apiVersion '%s' has no supported resources in cluster", apiVersion)
-		}
-
-		lists = []*metav1.APIResourceList{list}
 	}
 
-	return
+	// Get only resources for desired group and version
+	gv, err := schema.ParseGroupVersion(apiVersion)
+	if err != nil {
+		return nil, fmt.Errorf("apiVersion '%s' is invalid", apiVersion)
+	}
+
+	list, err := c.discovery().ServerResourcesForGroupVersion(gv.String())
+	if err != nil {
+		// if not found, err has type *errors.errorString here
+		return nil, errors.Wrapf(err, "apiVersion '%s' has no supported resources in cluster", apiVersion)
+	}
+
+	return []*metav1.APIResourceList{list}, nil
 }
 
 // APIResource fetches APIResource object from cluster that specifies the name of a resource and whether it is namespaced.
@@ -523,7 +519,7 @@ func (c *Client) APIResource(apiVersion, kind string) (*metav1.APIResource, erro
 	return resource, nil
 }
 
-func (c *Client) apiResource(apiVersion, kind string) (res *metav1.APIResource, err error) {
+func (c *Client) apiResource(apiVersion, kind string) (*metav1.APIResource, error) {
 	lists, err := c.APIResourceList(apiVersion)
 	if err != nil && len(lists) == 0 {
 		// apiVersion is defined and there is a ServerResourcesForGroupVersion error
@@ -543,10 +539,10 @@ func (c *Client) apiResource(apiVersion, kind string) (res *metav1.APIResource, 
 //
 // This method is borrowed from kubectl and kubedog. The difference are:
 // - lower case comparison with kind, name and all short names
-func (c *Client) GroupVersionResource(apiVersion, kind string) (gvr schema.GroupVersionResource, err error) {
+func (c *Client) GroupVersionResource(apiVersion, kind string) (schema.GroupVersionResource, error) {
 	apiRes, err := c.APIResource(apiVersion, kind)
 	if err != nil {
-		return
+		return schema.GroupVersionResource{}, err
 	}
 
 	return schema.GroupVersionResource{

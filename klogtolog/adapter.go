@@ -55,7 +55,7 @@ var klogRe = regexp.MustCompile(`^.* .*  .* (.*\d+)\] (.*)\n$`)
 // {"level":"warn","msg":"Warning from klog powered lib (lib_methods.go:8)","file":"lib_methods.go:8","time":"2025-07-04T19:39:28+03:00"}
 // {"level":"info","msg":"Info from klog powered lib (lib_methods.go:12)","file":"lib_methods.go:12","time":"2025-07-04T19:39:28+03:00"}
 // {"level":"error","msg":"Error from klog powered lib (adapter_test.go:48)","file":"adapter_test.go:48", "stacktrace": ... ,"time":"2025-07-04T19:39:28+03:00"}
-func (w *writer) Write(msg []byte) (n int, err error) {
+func (w *writer) Write(msg []byte) (int, error) {
 	logger := w.logger
 
 	groups := klogRe.FindStringSubmatch(string(msg))
