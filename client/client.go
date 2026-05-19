@@ -30,8 +30,9 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/tools/metrics"
+	clientgometrics "k8s.io/client-go/tools/metrics"
 
+	internalmetrics "github.com/flant/kube-client/internal/metrics"
 	_ "github.com/flant/kube-client/klogtolog" // route klog messages from client-go to log
 )
 
@@ -90,6 +91,7 @@ type Client struct {
 	server           string
 	metricStorage    MetricStorage
 	metricLabels     map[string]string
+	metricPrefix     string
 	schema           *runtime.Scheme
 	restConfig       *rest.Config
 	logger           *log.Logger
@@ -139,12 +141,24 @@ func (c *Client) WithTimeout(timeout time.Duration) {
 	c.timeout = timeout
 }
 
-func (c *Client) WithMetricStorage(metricStorage MetricStorage) {
-	c.metricStorage = metricStorage
+// WithMetricStorage sets the metric storage backend used to record Kubernetes
+// client metrics. Call WithMetricLabels and WithMetricPrefix before Init to
+// customise dimensions and the metric name prefix.
+func (c *Client) WithMetricStorage(storage MetricStorage) {
+	c.metricStorage = storage
 }
 
+// WithMetricLabels sets extra label key/value pairs that are attached to every
+// metric sample emitted by this client.
 func (c *Client) WithMetricLabels(labels map[string]string) {
 	c.metricLabels = labels
+}
+
+// WithMetricPrefix sets the prefix that replaces the {PREFIX} placeholder in
+// all Kubernetes client metric names (see internal/metrics). An empty prefix
+// removes the placeholder, making the metric names start with "kubernetes_".
+func (c *Client) WithMetricPrefix(prefix string) {
+	c.metricPrefix = prefix
 }
 
 func (c *Client) DefaultNamespace() string {
@@ -168,9 +182,18 @@ func (c *Client) RestConfig() *rest.Config {
 	return c.restConfig
 }
 
+const defaultMetricPrefix = "kube_client_"
+
 func (c *Client) Init() error {
 	if c.logger == nil {
 		c.logger = log.NewLogger().Named("kubernetes-api-client").With("operator.component", "KubernetesAPIClient")
+	}
+
+	if c.metricStorage == nil {
+		c.metricStorage = newDefaultMetricStorage()
+	}
+	if c.metricPrefix == "" {
+		c.metricPrefix = defaultMetricPrefix
 	}
 
 	var err error
@@ -271,14 +294,11 @@ func (c *Client) Init() error {
 		return err
 	}
 
-	if c.metricStorage != nil {
-		metrics.Register(
-			metrics.RegisterOpts{
-				RequestLatency: NewRateLimiterLatencyMetric(c.metricStorage),
-				RequestResult:  NewRequestResultMetric(c.metricStorage, c.metricLabels),
-			},
-		)
-	}
+	internalmetrics.RegisterKubernetesClientMetrics(c.metricStorage, c.metricLabels, c.metricPrefix)
+	clientgometrics.Register(clientgometrics.RegisterOpts{
+		RequestLatency: internalmetrics.NewRateLimiterLatency(c.metricStorage, c.metricPrefix),
+		RequestResult:  internalmetrics.NewRequestResult(c.metricStorage, c.metricLabels, c.metricPrefix),
+	})
 
 	if _, fd := os.LookupEnv(`FLANT_KUBE_CLIENT_IN_MEMORY_DISCOVERY_CACHE`); fd {
 		discovery, err := discovery.NewDiscoveryClientForConfig(config)
