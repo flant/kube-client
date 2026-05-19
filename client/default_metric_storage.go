@@ -32,6 +32,7 @@ func (s *defaultMetricStorage) RegisterCounter(metric string, labels map[string]
 	cv := prometheus.NewCounterVec(prometheus.CounterOpts{Name: metric}, labelKeys(labels))
 	prometheus.MustRegister(cv)
 	s.counters[metric] = cv
+
 	return cv
 }
 
@@ -43,6 +44,7 @@ func (s *defaultMetricStorage) CounterAdd(metric string, value float64, labels m
 	if cv == nil {
 		return
 	}
+
 	cv.With(prometheus.Labels(labels)).Add(value)
 }
 
@@ -60,6 +62,7 @@ func (s *defaultMetricStorage) RegisterHistogram(metric string, labels map[strin
 	}, labelKeys(labels))
 	prometheus.MustRegister(hv)
 	s.histograms[metric] = hv
+
 	return hv
 }
 
@@ -71,6 +74,7 @@ func (s *defaultMetricStorage) HistogramObserve(metric string, value float64, la
 	if hv == nil {
 		return
 	}
+
 	hv.With(prometheus.Labels(labels)).Observe(value)
 }
 
@@ -80,5 +84,6 @@ func labelKeys(labels map[string]string) []string {
 	for k := range labels {
 		keys = append(keys, k)
 	}
+
 	return keys
 }

@@ -142,6 +142,7 @@ func (r RequestResult) Increment(_ context.Context, code, method, host string) {
 	for k, v := range r.extraLabels {
 		labels[k] = v
 	}
+
 	labels[LabelCode] = code
 	labels[LabelMethod] = method
 	labels[LabelHost] = host
@@ -156,8 +157,10 @@ func mergeLabels(extra map[string]string, keys ...string) map[string]string {
 	for k := range extra {
 		out[k] = ""
 	}
+
 	for _, k := range keys {
 		out[k] = ""
 	}
+
 	return out
 }

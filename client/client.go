@@ -66,6 +66,7 @@ func New(opts ...Option) *Client {
 
 func NewFake(gvr map[schema.GroupVersionResource]string) *Client {
 	sc := runtime.NewScheme()
+
 	return &Client{
 		Interface:        fake.NewSimpleClientset(),
 		defaultNamespace: "default",
@@ -192,13 +193,18 @@ func (c *Client) Init() error {
 	if c.metricStorage == nil {
 		c.metricStorage = newDefaultMetricStorage()
 	}
+
 	if c.metricPrefix == "" {
 		c.metricPrefix = defaultMetricPrefix
 	}
 
-	var err error
-	var config *rest.Config
+	var (
+		err    error
+		config *rest.Config
+	)
+
 	configType := "out-of-cluster"
+
 	var defaultNs string
 
 	switch {
@@ -213,6 +219,7 @@ func (c *Client) Init() error {
 	case c.server == "":
 		// Try to load from kubeconfig in flags or from ~/.kube/config
 		var outOfClusterErr error
+
 		config, defaultNs, outOfClusterErr = getOutOfClusterConfig(c.contextName, c.configPath)
 
 		if config == nil {
@@ -224,11 +231,15 @@ func (c *Client) Init() error {
 						if outOfClusterErr != nil {
 							err = fmt.Errorf("out-of-cluster config error: %v, in-cluster config error: %v", outOfClusterErr, err)
 							c.logger.Error("configuration problems", slog.String("error", err.Error()))
+
 							return err
 						}
+
 						return fmt.Errorf("in-cluster config is not found")
 					}
+
 					c.logger.Error("in-cluster problem", slog.String("error", err.Error()))
+
 					return err
 				}
 			} else {
@@ -237,8 +248,10 @@ func (c *Client) Init() error {
 					c.logger.Error("out-of-cluster problem", slog.String("error", outOfClusterErr.Error()))
 					return outOfClusterErr
 				}
+
 				return fmt.Errorf("no kubernetes client config found")
 			}
+
 			configType = "in-cluster"
 		}
 	default:
@@ -305,6 +318,7 @@ func (c *Client) Init() error {
 		if err != nil {
 			return err
 		}
+
 		c.cachedDiscovery = memory.NewMemCacheClient(discovery)
 	} else {
 		c.cachedDiscovery, err = newDiskCachedDiscovery(config)
@@ -372,6 +386,7 @@ func getClientConfig(context, kubeconfig string) clientcmd.ClientConfig {
 func hasInClusterConfig() bool {
 	token, _ := fileExists(kubeTokenFilePath)
 	ns, _ := fileExists(kubeNamespaceFilePath)
+
 	return token && ns
 }
 
@@ -382,8 +397,10 @@ func fileExists(path string) (bool, error) {
 		if os.IsNotExist(err) {
 			return false, nil
 		}
+
 		return false, err
 	}
+
 	return true, nil
 }
 
@@ -424,6 +441,7 @@ func getInClusterConfig() (config *rest.Config, defaultNs string, err error) {
 	if err != nil {
 		return nil, "", fmt.Errorf("in-cluster configuration problem: cannot determine default kubernetes namespace: error reading %s: %s", kubeNamespaceFilePath, err)
 	}
+
 	defaultNs = string(data)
 
 	return
@@ -475,6 +493,7 @@ func (c *Client) apiResourceList(apiVersion string) (lists []*metav1.APIResource
 			// if not found, err has type *errors.errorString here
 			return nil, errors.Wrapf(err, "apiVersion '%s' has no supported resources in cluster", apiVersion)
 		}
+
 		lists = []*metav1.APIResourceList{list}
 	}
 
@@ -496,6 +515,7 @@ func (c *Client) APIResource(apiVersion, kind string) (*metav1.APIResource, erro
 			return nil, fmt.Errorf("apiVersion '%s', kind '%s' is not supported by cluster: %w", apiVersion, kind, err)
 		}
 	}
+
 	if err != nil {
 		return nil, fmt.Errorf("apiVersion '%s', kind '%s' is not supported by cluster: %w", apiVersion, kind, err)
 	}
@@ -540,6 +560,7 @@ func (c *Client) discovery() discovery.DiscoveryInterface {
 	if c.cachedDiscovery != nil {
 		return c.cachedDiscovery
 	}
+
 	return c.Discovery()
 }
 
@@ -555,6 +576,7 @@ func equalLowerCasedToOneOf(term string, choices ...string) bool {
 	if len(choices) == 0 {
 		return false
 	}
+
 	lTerm := strings.ToLower(term)
 	for _, choice := range choices {
 		if lTerm == strings.ToLower(choice) {
@@ -577,6 +599,7 @@ func getApiResourceFromResourceLists(kind string, resourceLists []*metav1.APIRes
 				gv, _ := schema.ParseGroupVersion(list.GroupVersion)
 				resource.Group = gv.Group
 				resource.Version = gv.Version
+
 				return &resource
 			}
 		}
@@ -605,6 +628,7 @@ func (c *Client) ToRESTMapper() (meta.RESTMapper, error) {
 		func(warning string) {
 			c.logger.Warn("warning", slog.String("warning", warning))
 		})
+
 	return expander, nil
 }
 

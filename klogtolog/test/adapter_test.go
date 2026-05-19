@@ -49,6 +49,7 @@ func Test_adapter_catches_klog_WarnInfoError(t *testing.T) {
 
 	// Catch log lines
 	lines := []string{}
+
 	scanner := bufio.NewScanner(buf)
 	for scanner.Scan() {
 		lines = append(lines, scanner.Text())
@@ -61,6 +62,7 @@ func Test_adapter_catches_klog_WarnInfoError(t *testing.T) {
 
 		// not map[string]string because we have nested stacktrace
 		var record map[string]interface{}
+
 		err := json.Unmarshal([]byte(line), &record)
 		g.Expect(err).ShouldNot(HaveOccurred(), line, "log line should be a valid JSON")
 
@@ -98,34 +100,45 @@ func captureStderr(f func()) string {
 	if err != nil {
 		panic(err)
 	}
+
 	os.Stderr = writer
 
 	var out string
+
 	wg := new(sync.WaitGroup)
 	wg.Add(1)
+
 	go func() {
 		started := true
+
 		go func() {
 			f()
+
 			started = false
 		}()
 
 		var buf bytes.Buffer
+
 		b := make([]byte, 1024)
 		for {
 			n, err := reader.Read(b)
 			if n > 0 {
 				buf.Write(b[0:n])
 			}
+
 			if err != nil || n < len(b) || !started {
 				break
 			}
 		}
+
 		out = buf.String()
 
 		wg.Done()
 	}()
+
 	wg.Wait()
+
 	_ = writer.Close()
+
 	return out
 }
