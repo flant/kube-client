@@ -27,9 +27,11 @@ func NewFakeCluster(ver ClusterVersion) *Cluster {
 	if ver == "" {
 		ver = ClusterVersionV127
 	}
+
 	cres := ClusterResources(ver)
 
 	gvrToListKind := make(map[schema.GroupVersionResource]string)
+
 	for _, gr := range cres {
 		for _, res := range gr.APIResources {
 			gvr := schema.GroupVersionResource{
@@ -47,10 +49,12 @@ func NewFakeCluster(ver ClusterVersion) *Cluster {
 	fc.Client = klient.NewFake(gvrToListKind)
 
 	var ok bool
+
 	fc.Discovery, ok = fc.Client.Discovery().(*fakediscovery.FakeDiscovery)
 	if !ok {
 		panic("couldn't convert Discovery() to *FakeDiscovery")
 	}
+
 	fc.Discovery.FakedServerVersion = &version.Info{GitCommit: ver.String(), Major: ver.Major(), Minor: ver.Minor()}
 	fc.Discovery.Resources = cres
 
@@ -93,6 +97,7 @@ func (fc *Cluster) RegisterCRD(group, version, kind string, namespaced bool) {
 			return
 		}
 	}
+
 	fc.Discovery.Resources = append(fc.Discovery.Resources, &metav1.APIResourceList{
 		GroupVersion: group + "/" + version,
 		APIResources: []metav1.APIResource{newResource},
@@ -104,6 +109,7 @@ func (fc *Cluster) FindGVR(apiVersion, kind string) (*schema.GroupVersionResourc
 	if gvr == nil {
 		return nil, fmt.Errorf("GVR for %s is not find", kind)
 	}
+
 	return gvr, nil
 }
 
@@ -125,6 +131,7 @@ func (fc *Cluster) CreateSimpleNamespaced(ns, kind, name string) {
 
 func (fc *Cluster) DeleteSimpleNamespaced(ns, kind, name string) {
 	gvr := fc.MustFindGVR("", kind)
+
 	err := fc.Client.Dynamic().Resource(*gvr).Namespace(ns).Delete(context.TODO(), name, metav1.DeleteOptions{})
 	if err != nil {
 		panic(err)
@@ -136,10 +143,12 @@ func (fc *Cluster) Create(ns string, m manifest.Manifest) error {
 	if err != nil {
 		return err
 	}
+
 	_, err = fc.Client.Dynamic().Resource(*gvr).Namespace(m.Namespace(ns)).Create(context.TODO(), m.Unstructured(), metav1.CreateOptions{})
 	if err != nil {
 		return fmt.Errorf("creating object failed: %v", err)
 	}
+
 	return nil
 }
 
@@ -153,6 +162,7 @@ func (fc *Cluster) Delete(ns string, m manifest.Manifest) error {
 	if err != nil {
 		return fmt.Errorf("deleting object failed: %v", err)
 	}
+
 	return nil
 }
 
@@ -166,6 +176,7 @@ func (fc *Cluster) Update(ns string, m manifest.Manifest) error {
 	if err != nil {
 		return fmt.Errorf("updating object failed: %v", err)
 	}
+
 	return nil
 }
 
@@ -174,10 +185,12 @@ func findGvr(resources []*metav1.APIResourceList, apiVersion, kindOrName string)
 		if apiVersion != "" && apiResourceGroup.GroupVersion != apiVersion {
 			continue
 		}
+
 		for _, apiResource := range apiResourceGroup.APIResources {
 			if strings.EqualFold(apiResource.Kind, kindOrName) || strings.EqualFold(apiResource.Name, kindOrName) {
 				// ignore parse error, because FakeClusterResources should be valid
 				gv, _ := schema.ParseGroupVersion(apiResourceGroup.GroupVersion)
+
 				return &schema.GroupVersionResource{
 					Resource: apiResource.Name,
 					Group:    gv.Group,
@@ -186,5 +199,6 @@ func findGvr(resources []*metav1.APIResourceList, apiVersion, kindOrName string)
 			}
 		}
 	}
+
 	return nil
 }

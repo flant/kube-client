@@ -35,8 +35,8 @@ YQ = $(LOCALBIN)/yq
 ## TODO: remap in yaml file (version.yaml or smthng)
 ## Tool Versions
 # GO_BUILDER_VERSION must be without 'v' prefix
-GO_BUILDER_VERSION = 1.25.5
-GOLANGCI_LINT_VERSION = v2.8.0
+GO_BUILDER_VERSION = 1.26.2
+GOLANGCI_LINT_VERSION = v2.12.2
 YQ_VERSION ?= v4.50.1
 
 
@@ -51,7 +51,7 @@ update-workflows-go-version: yq
 
 .PHONY: update-workflows-golangci-lint-version
 update-workflows-golangci-lint-version: yq
-	$(YQ) -i '(.jobs.run_linter.steps[] | select(.name == "Run golangci-lint") | .run) |= sub("v\\d+\\.\\d+\\.\\d+", "$(GOLANGCI_LINT_VERSION)")' .github/workflows/lint.yaml
+	$(YQ) -i '(.jobs.run_linter.steps[] | select(.name == "Run golangci-lint") | .with.version) = "$(GOLANGCI_LINT_VERSION)"' .github/workflows/lint.yaml
 	echo "Updated golangci-lint version in lint.yaml to $(GOLANGCI_LINT_VERSION)"
 
 ## Installed tools check

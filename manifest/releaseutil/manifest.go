@@ -46,7 +46,9 @@ func SplitManifests(bigFile string) map[string]string {
 	// Making sure that any extra whitespace in YAML stream doesn't interfere in splitting documents correctly.
 	bigFileTmp := strings.TrimSpace(bigFile)
 	docs := sep.Split(bigFileTmp, -1)
+
 	var count int
+
 	for _, d := range docs {
 		if d == "" {
 			continue
@@ -56,6 +58,7 @@ func SplitManifests(bigFile string) map[string]string {
 		res[fmt.Sprintf(tpl, count)] = d
 		count++
 	}
+
 	return res
 }
 
@@ -67,6 +70,7 @@ func (a BySplitManifestsOrder) Less(i, j int) bool {
 	// Split `manifest-%d`
 	anum, _ := strconv.ParseInt(a[i][len("manifest-"):], 10, 0)
 	bnum, _ := strconv.ParseInt(a[j][len("manifest-"):], 10, 0)
+
 	return anum < bnum
 }
 func (a BySplitManifestsOrder) Swap(i, j int) { a[i], a[j] = a[j], a[i] }

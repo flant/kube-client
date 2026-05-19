@@ -15,6 +15,7 @@ func getFieldString(m map[string]interface{}, field string) string {
 			return res
 		}
 	}
+
 	return ""
 }
 
@@ -30,10 +31,12 @@ func New(apiVersion, kind, name string) Manifest {
 
 func NewFromYAML(yamlOrJson string) (Manifest, error) {
 	var m Manifest
+
 	err := yaml.Unmarshal([]byte(yamlOrJson), &m)
 	if err != nil {
 		return Manifest{}, err
 	}
+
 	return m, nil
 }
 
@@ -42,6 +45,7 @@ func MustFromYAML(yamlOrJson string) Manifest {
 	if err != nil {
 		panic(err)
 	}
+
 	return m
 }
 
@@ -52,12 +56,14 @@ func (m Manifest) Id() string {
 // HasBasicFields is true if Template has version, kind and metadata.name fields
 func (m Manifest) HasBasicFields() bool {
 	_, hasKind := m["kind"]
+
 	_, hasVersion := m["apiVersion"]
 	if !hasKind || !hasVersion {
 		return false
 	}
 
 	_, hasName := m.Metadata()["name"]
+
 	return hasName
 }
 
@@ -78,6 +84,7 @@ func (m Manifest) Namespace(defaultNs string) string {
 	if ns != "" {
 		return ns
 	}
+
 	return defaultNs
 }
 

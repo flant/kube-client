@@ -21,6 +21,7 @@ func InitAdapter(enableDebug bool, logger *log.Logger) {
 	// - set writer for INFO severity to catch all messages
 	klogFlagSet := flag.NewFlagSet("klog", flag.ContinueOnError)
 	klog.InitFlags(klogFlagSet)
+
 	args := []string{
 		"-logtostderr=false",
 		"-stderrthreshold=FATAL",
@@ -31,6 +32,7 @@ func InitAdapter(enableDebug bool, logger *log.Logger) {
 	}
 
 	_ = klogFlagSet.Parse(args)
+
 	klog.SetOutputBySeverity("INFO", &writer{logger: logger.With("source", "klog")})
 }
 
@@ -53,12 +55,13 @@ var klogRe = regexp.MustCompile(`^.* .*  .* (.*\d+)\] (.*)\n$`)
 // {"level":"warn","msg":"Warning from klog powered lib (lib_methods.go:8)","file":"lib_methods.go:8","time":"2025-07-04T19:39:28+03:00"}
 // {"level":"info","msg":"Info from klog powered lib (lib_methods.go:12)","file":"lib_methods.go:12","time":"2025-07-04T19:39:28+03:00"}
 // {"level":"error","msg":"Error from klog powered lib (adapter_test.go:48)","file":"adapter_test.go:48", "stacktrace": ... ,"time":"2025-07-04T19:39:28+03:00"}
-func (w *writer) Write(msg []byte) (n int, err error) {
+func (w *writer) Write(msg []byte) (int, error) {
 	logger := w.logger
 
 	groups := klogRe.FindStringSubmatch(string(msg))
 
 	var message string
+
 	if len(groups) > 2 {
 		logger = logger.With("file", groups[1])
 
@@ -77,5 +80,6 @@ func (w *writer) Write(msg []byte) (n int, err error) {
 	default:
 		logger.Info(message)
 	}
+
 	return 0, nil
 }

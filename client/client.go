@@ -30,8 +30,9 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/tools/metrics"
+	clientgometrics "k8s.io/client-go/tools/metrics"
 
+	internalmetrics "github.com/flant/kube-client/internal/metrics"
 	_ "github.com/flant/kube-client/klogtolog" // route klog messages from client-go to log
 )
 
@@ -65,6 +66,7 @@ func New(opts ...Option) *Client {
 
 func NewFake(gvr map[schema.GroupVersionResource]string) *Client {
 	sc := runtime.NewScheme()
+
 	return &Client{
 		Interface:        fake.NewSimpleClientset(),
 		defaultNamespace: "default",
@@ -90,6 +92,7 @@ type Client struct {
 	server           string
 	metricStorage    MetricStorage
 	metricLabels     map[string]string
+	metricPrefix     string
 	schema           *runtime.Scheme
 	restConfig       *rest.Config
 	logger           *log.Logger
@@ -139,12 +142,24 @@ func (c *Client) WithTimeout(timeout time.Duration) {
 	c.timeout = timeout
 }
 
-func (c *Client) WithMetricStorage(metricStorage MetricStorage) {
-	c.metricStorage = metricStorage
+// WithMetricStorage sets the metric storage backend used to record Kubernetes
+// client metrics. Call WithMetricLabels and WithMetricPrefix before Init to
+// customise dimensions and the metric name prefix.
+func (c *Client) WithMetricStorage(storage MetricStorage) {
+	c.metricStorage = storage
 }
 
+// WithMetricLabels sets extra label key/value pairs that are attached to every
+// metric sample emitted by this client.
 func (c *Client) WithMetricLabels(labels map[string]string) {
 	c.metricLabels = labels
+}
+
+// WithMetricPrefix sets the prefix that replaces the {PREFIX} placeholder in
+// all Kubernetes client metric names (see internal/metrics). An empty prefix
+// removes the placeholder, making the metric names start with "kubernetes_".
+func (c *Client) WithMetricPrefix(prefix string) {
+	c.metricPrefix = prefix
 }
 
 func (c *Client) DefaultNamespace() string {
@@ -168,14 +183,28 @@ func (c *Client) RestConfig() *rest.Config {
 	return c.restConfig
 }
 
+const defaultMetricPrefix = "kube_client_"
+
 func (c *Client) Init() error {
 	if c.logger == nil {
 		c.logger = log.NewLogger().Named("kubernetes-api-client").With("operator.component", "KubernetesAPIClient")
 	}
 
-	var err error
-	var config *rest.Config
+	if c.metricStorage == nil {
+		c.metricStorage = newDefaultMetricStorage()
+	}
+
+	if c.metricPrefix == "" {
+		c.metricPrefix = defaultMetricPrefix
+	}
+
+	var (
+		err    error
+		config *rest.Config
+	)
+
 	configType := "out-of-cluster"
+
 	var defaultNs string
 
 	switch {
@@ -190,6 +219,7 @@ func (c *Client) Init() error {
 	case c.server == "":
 		// Try to load from kubeconfig in flags or from ~/.kube/config
 		var outOfClusterErr error
+
 		config, defaultNs, outOfClusterErr = getOutOfClusterConfig(c.contextName, c.configPath)
 
 		if config == nil {
@@ -201,11 +231,15 @@ func (c *Client) Init() error {
 						if outOfClusterErr != nil {
 							err = fmt.Errorf("out-of-cluster config error: %v, in-cluster config error: %v", outOfClusterErr, err)
 							c.logger.Error("configuration problems", slog.String("error", err.Error()))
+
 							return err
 						}
+
 						return fmt.Errorf("in-cluster config is not found")
 					}
+
 					c.logger.Error("in-cluster problem", slog.String("error", err.Error()))
+
 					return err
 				}
 			} else {
@@ -214,8 +248,10 @@ func (c *Client) Init() error {
 					c.logger.Error("out-of-cluster problem", slog.String("error", outOfClusterErr.Error()))
 					return outOfClusterErr
 				}
+
 				return fmt.Errorf("no kubernetes client config found")
 			}
+
 			configType = "in-cluster"
 		}
 	default:
@@ -271,20 +307,18 @@ func (c *Client) Init() error {
 		return err
 	}
 
-	if c.metricStorage != nil {
-		metrics.Register(
-			metrics.RegisterOpts{
-				RequestLatency: NewRateLimiterLatencyMetric(c.metricStorage),
-				RequestResult:  NewRequestResultMetric(c.metricStorage, c.metricLabels),
-			},
-		)
-	}
+	internalmetrics.RegisterKubernetesClientMetrics(c.metricStorage, c.metricLabels, c.metricPrefix)
+	clientgometrics.Register(clientgometrics.RegisterOpts{
+		RequestLatency: internalmetrics.NewRateLimiterLatency(c.metricStorage, c.metricPrefix),
+		RequestResult:  internalmetrics.NewRequestResult(c.metricStorage, c.metricLabels, c.metricPrefix),
+	})
 
 	if _, fd := os.LookupEnv(`FLANT_KUBE_CLIENT_IN_MEMORY_DISCOVERY_CACHE`); fd {
 		discovery, err := discovery.NewDiscoveryClientForConfig(config)
 		if err != nil {
 			return err
 		}
+
 		c.cachedDiscovery = memory.NewMemCacheClient(discovery)
 	} else {
 		c.cachedDiscovery, err = newDiskCachedDiscovery(config)
@@ -352,6 +386,7 @@ func getClientConfig(context, kubeconfig string) clientcmd.ClientConfig {
 func hasInClusterConfig() bool {
 	token, _ := fileExists(kubeTokenFilePath)
 	ns, _ := fileExists(kubeNamespaceFilePath)
+
 	return token && ns
 }
 
@@ -362,20 +397,22 @@ func fileExists(path string) (bool, error) {
 		if os.IsNotExist(err) {
 			return false, nil
 		}
+
 		return false, err
 	}
+
 	return true, nil
 }
 
-func getOutOfClusterConfig(contextName, configPath string) (config *rest.Config, defaultNs string, err error) {
+func getOutOfClusterConfig(contextName, configPath string) (*rest.Config, string, error) {
 	clientConfig := getClientConfig(contextName, configPath)
 
-	defaultNs, _, err = clientConfig.Namespace()
+	defaultNs, _, err := clientConfig.Namespace()
 	if err != nil {
 		return nil, "", fmt.Errorf("cannot determine default kubernetes namespace: %s", err)
 	}
 
-	config, err = clientConfig.ClientConfig()
+	config, err := clientConfig.ClientConfig()
 	if err != nil {
 		return nil, "", makeOutOfClusterClientConfigError(configPath, contextName, err)
 	}
@@ -391,11 +428,11 @@ func getOutOfClusterConfig(contextName, configPath string) (config *rest.Config,
 	//	Context = rc.CurrentContext
 	// }
 
-	return
+	return config, defaultNs, nil
 }
 
-func getInClusterConfig() (config *rest.Config, defaultNs string, err error) {
-	config, err = rest.InClusterConfig()
+func getInClusterConfig() (*rest.Config, string, error) {
+	config, err := rest.InClusterConfig()
 	if err != nil {
 		return nil, "", fmt.Errorf("in-cluster configuration problem: %s", err)
 	}
@@ -404,9 +441,8 @@ func getInClusterConfig() (config *rest.Config, defaultNs string, err error) {
 	if err != nil {
 		return nil, "", fmt.Errorf("in-cluster configuration problem: cannot determine default kubernetes namespace: error reading %s: %s", kubeNamespaceFilePath, err)
 	}
-	defaultNs = string(data)
 
-	return
+	return config, string(data), nil
 }
 
 // APIResourceList fetches lists of APIResource objects from cluster. It returns all preferred
@@ -414,8 +450,8 @@ func getInClusterConfig() (config *rest.Config, defaultNs string, err error) {
 //
 // NOTE that fetching all preferred resources can give errors if there are non-working
 // api controllers in cluster.
-func (c *Client) APIResourceList(apiVersion string) (lists []*metav1.APIResourceList, err error) {
-	lists, err = c.apiResourceList(apiVersion)
+func (c *Client) APIResourceList(apiVersion string) ([]*metav1.APIResourceList, error) {
+	lists, err := c.apiResourceList(apiVersion)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			// *errors.errorString type is here, we can't check it another way
@@ -429,7 +465,7 @@ func (c *Client) APIResourceList(apiVersion string) (lists []*metav1.APIResource
 	return lists, nil
 }
 
-func (c *Client) apiResourceList(apiVersion string) (lists []*metav1.APIResourceList, err error) {
+func (c *Client) apiResourceList(apiVersion string) ([]*metav1.APIResourceList, error) {
 	if apiVersion == "" {
 		// Get all preferred resources.
 		// Can return errors if api controllers are not available.
@@ -443,22 +479,21 @@ func (c *Client) apiResourceList(apiVersion string) (lists []*metav1.APIResource
 		default:
 			return c.discovery().ServerPreferredResources()
 		}
-	} else {
-		// Get only resources for desired group and version
-		gv, err := schema.ParseGroupVersion(apiVersion)
-		if err != nil {
-			return nil, fmt.Errorf("apiVersion '%s' is invalid", apiVersion)
-		}
-
-		list, err := c.discovery().ServerResourcesForGroupVersion(gv.String())
-		if err != nil {
-			// if not found, err has type *errors.errorString here
-			return nil, errors.Wrapf(err, "apiVersion '%s' has no supported resources in cluster", apiVersion)
-		}
-		lists = []*metav1.APIResourceList{list}
 	}
 
-	return
+	// Get only resources for desired group and version
+	gv, err := schema.ParseGroupVersion(apiVersion)
+	if err != nil {
+		return nil, fmt.Errorf("apiVersion '%s' is invalid", apiVersion)
+	}
+
+	list, err := c.discovery().ServerResourcesForGroupVersion(gv.String())
+	if err != nil {
+		// if not found, err has type *errors.errorString here
+		return nil, errors.Wrapf(err, "apiVersion '%s' has no supported resources in cluster", apiVersion)
+	}
+
+	return []*metav1.APIResourceList{list}, nil
 }
 
 // APIResource fetches APIResource object from cluster that specifies the name of a resource and whether it is namespaced.
@@ -476,6 +511,7 @@ func (c *Client) APIResource(apiVersion, kind string) (*metav1.APIResource, erro
 			return nil, fmt.Errorf("apiVersion '%s', kind '%s' is not supported by cluster: %w", apiVersion, kind, err)
 		}
 	}
+
 	if err != nil {
 		return nil, fmt.Errorf("apiVersion '%s', kind '%s' is not supported by cluster: %w", apiVersion, kind, err)
 	}
@@ -483,7 +519,7 @@ func (c *Client) APIResource(apiVersion, kind string) (*metav1.APIResource, erro
 	return resource, nil
 }
 
-func (c *Client) apiResource(apiVersion, kind string) (res *metav1.APIResource, err error) {
+func (c *Client) apiResource(apiVersion, kind string) (*metav1.APIResource, error) {
 	lists, err := c.APIResourceList(apiVersion)
 	if err != nil && len(lists) == 0 {
 		// apiVersion is defined and there is a ServerResourcesForGroupVersion error
@@ -503,10 +539,10 @@ func (c *Client) apiResource(apiVersion, kind string) (res *metav1.APIResource, 
 //
 // This method is borrowed from kubectl and kubedog. The difference are:
 // - lower case comparison with kind, name and all short names
-func (c *Client) GroupVersionResource(apiVersion, kind string) (gvr schema.GroupVersionResource, err error) {
+func (c *Client) GroupVersionResource(apiVersion, kind string) (schema.GroupVersionResource, error) {
 	apiRes, err := c.APIResource(apiVersion, kind)
 	if err != nil {
-		return
+		return schema.GroupVersionResource{}, err
 	}
 
 	return schema.GroupVersionResource{
@@ -520,6 +556,7 @@ func (c *Client) discovery() discovery.DiscoveryInterface {
 	if c.cachedDiscovery != nil {
 		return c.cachedDiscovery
 	}
+
 	return c.Discovery()
 }
 
@@ -535,6 +572,7 @@ func equalLowerCasedToOneOf(term string, choices ...string) bool {
 	if len(choices) == 0 {
 		return false
 	}
+
 	lTerm := strings.ToLower(term)
 	for _, choice := range choices {
 		if lTerm == strings.ToLower(choice) {
@@ -557,6 +595,7 @@ func getApiResourceFromResourceLists(kind string, resourceLists []*metav1.APIRes
 				gv, _ := schema.ParseGroupVersion(list.GroupVersion)
 				resource.Group = gv.Group
 				resource.Version = gv.Version
+
 				return &resource
 			}
 		}
@@ -585,6 +624,7 @@ func (c *Client) ToRESTMapper() (meta.RESTMapper, error) {
 		func(warning string) {
 			c.logger.Warn("warning", slog.String("warning", warning))
 		})
+
 	return expander, nil
 }
 

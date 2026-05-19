@@ -7,20 +7,28 @@ linters:
     - copyloopvar
     - depguard
     - dogsled
+    - errcheck
     - durationcheck
     - gochecknoinits
     - gocritic
     - goprintffuncname
+
     - govet
     - ineffassign
+    - makezero
     - misspell
+    - musttag
+    - nonamedreturns
     - nolintlint
     - prealloc
     - revive
     - sloglint
     - staticcheck
     - unconvert
+    - unparam
     - unused
+    - usestdlibvars
+    - wsl_v5
     - whitespace
   settings:
     depguard:
@@ -31,14 +39,32 @@ linters:
           deny:
             - pkg: github.com/evanphx/json-patch
               desc: The 'github.com/evanphx/json-patch' package is superseded. Use pkg/utils/jsonpatch.go instead.
+            - pkg: github.com/golang/mock
+              desc: "In public archive. Use 'github.com/gojuno/minimock' instead."
+            - pkg: "github.com/samber/lo"
+              desc: "This package must not be used, because of increasing cognitive complexity."
+    errcheck:
+      exclude-functions:
+        - fmt:.*[rR]ead|[wW]rite|[cC]lose
+        - io:Copy
+        - (io.Writer).Write
     sloglint:
       no-mixed-args: true
+      # Enforce using key-value pairs only (overrides no-mixed-args, incompatible with attr-only).
       kv-only: false
+      # Enforce using attributes only (overrides no-mixed-args, incompatible with kv-only).
       attr-only: false
+      # Enforce not using global loggers.
       no-global: ""
+      # Enforce using methods that accept a context.
       context: ""
+      # Enforce using static values for log messages.
       static-msg: false
+      # Enforce using constants instead of raw keys.
       no-raw-keys: false
+      # Enforce a single key naming convention.
+      key-naming-case: "snake"
+      # Enforce not using specific keys.
       forbidden-keys:
         - level
         - msg
@@ -46,6 +72,7 @@ linters:
         - source
         - stacktrace
         - time
+      # Enforce putting arguments on separate lines.
       args-on-sep-lines: false
   exclusions:
     generated: lax
@@ -96,6 +123,7 @@ formatters:
         - standard
         - default
         - prefix(github.com/flant/)
+        - localmodule
     goimports:
       local-prefixes:
         - github.com/flant/
@@ -105,3 +133,4 @@ formatters:
       - third_party$
       - builtin$
       - examples$
+      - ^tools$

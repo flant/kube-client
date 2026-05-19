@@ -14,6 +14,7 @@ func TestRegisterCRD(t *testing.T) {
 
 	t.Run("test CRD registration", func(t *testing.T) {
 		f.RegisterCRD("deckhouse.io", "v1alpha1", "KeepalivedInstance", false)
+
 		gvk := schema.GroupVersionResource{
 			Group:    "deckhouse.io",
 			Version:  "v1alpha1",
