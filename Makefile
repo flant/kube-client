@@ -29,32 +29,6 @@ $(LOCALBIN):
 ## Tool Binaries
 GO=$(shell which go)
 GIT=$(shell which git)
-GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
-YQ = $(LOCALBIN)/yq
-
-## TODO: remap in yaml file (version.yaml or smthng)
-## Tool Versions
-# GO_BUILDER_VERSION must be without 'v' prefix
-GO_BUILDER_VERSION = 1.26.2
-GOLANGCI_LINT_VERSION = v2.12.2
-YQ_VERSION ?= v4.50.1
-
-
-.PHONY: update-workflows-go-version
-update-workflows-go-version: yq
-	for file in $$(find .github/workflows -name "*.yaml"); do \
-		if grep -q "actions/setup-go" $$file; then \
-			$(YQ) -i '(.jobs[]?.steps[]? | select(.uses | test("actions/setup-go")) | .with."go-version") = "$(GO_BUILDER_VERSION)"' $$file; \
-		fi; \
-	done
-	echo "Updated go-version in workflow files to $(GO_BUILDER_VERSION)"
-
-.PHONY: update-workflows-golangci-lint-version
-update-workflows-golangci-lint-version: yq
-	$(YQ) -i '(.jobs.run_linter.steps[] | select(.name == "Run golangci-lint") | .run) |= sub("v\\d+\\.\\d+\\.\\d+", "$(GOLANGCI_LINT_VERSION)")' .github/workflows/lint.yaml
-	echo "Updated golangci-lint version in lint.yaml to $(GOLANGCI_LINT_VERSION)"
-
-## Installed tools check
 
 .PHONY: go-check
 go-check:

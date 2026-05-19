@@ -1,5 +1,7 @@
 version: "2"
+version: "2"
 linters:
+  default: none
   default: none
   enable:
     - asciicheck
