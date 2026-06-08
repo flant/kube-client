@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/deckhouse/deckhouse/pkg/log"
@@ -96,6 +97,12 @@ type Client struct {
 	schema           *runtime.Scheme
 	restConfig       *rest.Config
 	logger           *log.Logger
+	// discoveryMu serialises access to the cached discovery client so that
+	// concurrent callers of APIResource / APIResourceList do not trigger a
+	// data race in the upstream versioning codec which mutates shared
+	// TypeMeta fields during encoding (see writeCachedFile in client-go
+	// disk cache).
+	discoveryMu sync.Mutex
 	// acceptOnlyJSONContentType
 	// use only JSON for interactions with kube-api
 	acceptOnlyJSONContentType bool
@@ -451,6 +458,15 @@ func getInClusterConfig() (*rest.Config, string, error) {
 // NOTE that fetching all preferred resources can give errors if there are non-working
 // api controllers in cluster.
 func (c *Client) APIResourceList(apiVersion string) ([]*metav1.APIResourceList, error) {
+	c.discoveryMu.Lock()
+	defer c.discoveryMu.Unlock()
+
+	return c.apiResourceListWithRetry(apiVersion)
+}
+
+// apiResourceListWithRetry contains the retry-after-invalidate logic.
+// It must be called with c.discoveryMu held.
+func (c *Client) apiResourceListWithRetry(apiVersion string) ([]*metav1.APIResourceList, error) {
 	lists, err := c.apiResourceList(apiVersion)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
@@ -502,6 +518,9 @@ func (c *Client) apiResourceList(apiVersion string) ([]*metav1.APIResourceList, 
 // NOTE that fetching with empty apiVersion can give errors if there are non-working
 // api controllers in cluster.
 func (c *Client) APIResource(apiVersion, kind string) (*metav1.APIResource, error) {
+	c.discoveryMu.Lock()
+	defer c.discoveryMu.Unlock()
+
 	resource, err := c.apiResource(apiVersion, kind)
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
@@ -519,8 +538,13 @@ func (c *Client) APIResource(apiVersion, kind string) (*metav1.APIResource, erro
 	return resource, nil
 }
 
+// apiResource must be called with c.discoveryMu held.
+// It calls apiResourceList directly (without the retry wrapper) because the
+// caller (APIResource) already handles invalidation and retry when the kind is
+// not found.  Using apiResourceListWithRetry here would double-invalidate the
+// cache and cause up to 4 discovery round-trips for a single missing resource.
 func (c *Client) apiResource(apiVersion, kind string) (*metav1.APIResource, error) {
-	lists, err := c.APIResourceList(apiVersion)
+	lists, err := c.apiResourceList(apiVersion)
 	if err != nil && len(lists) == 0 {
 		// apiVersion is defined and there is a ServerResourcesForGroupVersion error
 		return nil, err
@@ -563,6 +587,9 @@ func (c *Client) discovery() discovery.DiscoveryInterface {
 // InvalidateDiscoveryCache allows you to invalidate cache manually, for example, when you are deploying CRD
 // KubeClient tries to invalidate cache automatically when needed, but you can save a few resources to call this manually
 func (c *Client) InvalidateDiscoveryCache() {
+	c.discoveryMu.Lock()
+	defer c.discoveryMu.Unlock()
+
 	if c.cachedDiscovery != nil {
 		c.cachedDiscovery.Invalidate()
 	}
