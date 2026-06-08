@@ -91,6 +91,7 @@ func Test_klog_should_not_output_to_Stderr(t *testing.T) {
 func captureStderr(f func()) string {
 	// save and defer restore of original stderr
 	origStderr := os.Stderr
+
 	defer func() {
 		os.Stderr = origStderr
 	}()
