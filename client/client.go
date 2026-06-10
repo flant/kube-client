@@ -555,7 +555,7 @@ func (c *Client) APIResource(apiVersion, kind string) (*metav1.APIResource, erro
 }
 
 func (c *Client) apiResource(apiVersion, kind string) (*metav1.APIResource, error) {
-	lists, err := c.apiResourceList(apiVersion)
+	lists, err := c.APIResourceList(apiVersion)
 	if err != nil && len(lists) == 0 {
 		// apiVersion is defined and there is a ServerResourcesForGroupVersion error
 		return nil, err
