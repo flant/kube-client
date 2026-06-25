@@ -5,10 +5,12 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/deckhouse/deckhouse/pkg/log"
 	"github.com/pkg/errors"
+	"golang.org/x/sync/singleflight"
 	apixv1client "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -96,6 +98,14 @@ type Client struct {
 	schema           *runtime.Scheme
 	restConfig       *rest.Config
 	logger           *log.Logger
+	// invalidateMu protects cachedDiscovery.Invalidate() which is not
+	// goroutine-safe.
+	invalidateMu sync.Mutex
+	// discoverySF deduplicates concurrent discovery calls for the same key
+	// so that the upstream disk cache does not encode the same shared
+	// *metav1.APIResourceList object from multiple goroutines simultaneously
+	// (writeCachedFile → runtime.Encode mutates TypeMeta without holding a lock).
+	discoverySF singleflight.Group
 	// acceptOnlyJSONContentType
 	// use only JSON for interactions with kube-api
 	acceptOnlyJSONContentType bool
@@ -455,7 +465,7 @@ func (c *Client) APIResourceList(apiVersion string) ([]*metav1.APIResourceList, 
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			// *errors.errorString type is here, we can't check it another way
-			c.cachedDiscovery.Invalidate()
+			c.invalidateDiscovery()
 			return c.apiResourceList(apiVersion)
 		}
 
@@ -465,7 +475,31 @@ func (c *Client) APIResourceList(apiVersion string) ([]*metav1.APIResourceList, 
 	return lists, nil
 }
 
+// apiResourceListResult holds the result of a singleflight discovery call.
+type apiResourceListResult struct {
+	lists []*metav1.APIResourceList
+}
+
 func (c *Client) apiResourceList(apiVersion string) ([]*metav1.APIResourceList, error) {
+	// Deduplicate concurrent calls for the same apiVersion. This prevents
+	// the upstream disk cache from encoding the same shared object in
+	// parallel, which causes a race on TypeMeta fields.
+	v, err, _ := c.discoverySF.Do("apiResourceList:"+apiVersion, func() (any, error) {
+		return c.apiResourceListUncached(apiVersion)
+	})
+	if err != nil {
+		// singleflight may return (nil, err); also handle partial results.
+		if v == nil {
+			return nil, err
+		}
+
+		return v.(*apiResourceListResult).lists, err
+	}
+
+	return v.(*apiResourceListResult).lists, nil
+}
+
+func (c *Client) apiResourceListUncached(apiVersion string) (*apiResourceListResult, error) {
 	if apiVersion == "" {
 		// Get all preferred resources.
 		// Can return errors if api controllers are not available.
@@ -474,10 +508,11 @@ func (c *Client) apiResourceList(apiVersion string) ([]*metav1.APIResourceList, 
 			// FakeDiscovery does not implement ServerPreferredResources method
 			// lets return all possible resources, its better then nil
 			_, res, err := c.discovery().ServerGroupsAndResources()
-			return res, err
+			return &apiResourceListResult{lists: res}, err
 
 		default:
-			return c.discovery().ServerPreferredResources()
+			res, err := c.discovery().ServerPreferredResources()
+			return &apiResourceListResult{lists: res}, err
 		}
 	}
 
@@ -493,7 +528,7 @@ func (c *Client) apiResourceList(apiVersion string) ([]*metav1.APIResourceList, 
 		return nil, errors.Wrapf(err, "apiVersion '%s' has no supported resources in cluster", apiVersion)
 	}
 
-	return []*metav1.APIResourceList{list}, nil
+	return &apiResourceListResult{lists: []*metav1.APIResourceList{list}}, nil
 }
 
 // APIResource fetches APIResource object from cluster that specifies the name of a resource and whether it is namespaced.
@@ -505,7 +540,7 @@ func (c *Client) APIResource(apiVersion, kind string) (*metav1.APIResource, erro
 	resource, err := c.apiResource(apiVersion, kind)
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
-			c.cachedDiscovery.Invalidate()
+			c.invalidateDiscovery()
 			resource, err = c.apiResource(apiVersion, kind)
 		} else {
 			return nil, fmt.Errorf("apiVersion '%s', kind '%s' is not supported by cluster: %w", apiVersion, kind, err)
@@ -563,6 +598,15 @@ func (c *Client) discovery() discovery.DiscoveryInterface {
 // InvalidateDiscoveryCache allows you to invalidate cache manually, for example, when you are deploying CRD
 // KubeClient tries to invalidate cache automatically when needed, but you can save a few resources to call this manually
 func (c *Client) InvalidateDiscoveryCache() {
+	c.invalidateDiscovery()
+}
+
+// invalidateDiscovery resets the cached discovery state so that subsequent
+// calls fetch fresh data from the API server. It is goroutine-safe.
+func (c *Client) invalidateDiscovery() {
+	c.invalidateMu.Lock()
+	defer c.invalidateMu.Unlock()
+
 	if c.cachedDiscovery != nil {
 		c.cachedDiscovery.Invalidate()
 	}
