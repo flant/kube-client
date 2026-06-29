@@ -1,9 +1,11 @@
 package client
 
 import (
+	"fmt"
 	"sync"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	fakediscovery "k8s.io/client-go/discovery/fake"
 	"k8s.io/client-go/kubernetes/fake"
@@ -207,6 +209,39 @@ func TestConcurrentGroupVersionResourceNoRace(_ *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+// erroringDiscovery wraps cachedFakeDiscovery and returns an error from
+// ServerResourcesForGroupVersion to simulate an unregistered API group
+// (e.g. custom.metrics.k8s.io before metrics-adapter is deployed).
+type erroringDiscovery struct {
+	*cachedFakeDiscovery
+}
+
+func (d *erroringDiscovery) ServerResourcesForGroupVersion(_ string) (*metav1.APIResourceList, error) {
+	return nil, fmt.Errorf("the server could not find the requested resource")
+}
+
+// TestAPIResourceListTypedNilNoPanic reproduces the nil pointer dereference that
+// occurred when the discovery backend returned a typed nil on error. The typed nil
+// (*apiResourceListResult)(nil) stored in an any interface is non-nil, so the old
+// v == nil guard was bypassed and v.(*apiResourceListResult).lists panicked.
+func TestAPIResourceListTypedNilNoPanic(t *testing.T) {
+	k8sClient := fake.NewSimpleClientset()
+	fd := &cachedFakeDiscovery{
+		FakeDiscovery: k8sClient.Discovery().(*fakediscovery.FakeDiscovery),
+		fresh:         true,
+	}
+
+	c := New()
+	c.Interface = k8sClient
+	c.cachedDiscovery = &erroringDiscovery{cachedFakeDiscovery: fd}
+
+	// Before the fix this panicked:
+	//   runtime error: invalid memory address or nil pointer dereference
+	//   client.go:496: return v.(*apiResourceListResult).lists, err
+	_, err := c.APIResourceList("custom.metrics.k8s.io/v1beta2")
+	assert.Error(t, err)
 }
 
 // TestConcurrentMixedOpsNoRace is the most comprehensive test: all discovery

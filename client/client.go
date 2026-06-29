@@ -485,7 +485,11 @@ func (c *Client) apiResourceList(apiVersion string) ([]*metav1.APIResourceList, 
 	// the upstream disk cache from encoding the same shared object in
 	// parallel, which causes a race on TypeMeta fields.
 	v, err, _ := c.discoverySF.Do("apiResourceList:"+apiVersion, func() (any, error) {
-		return c.apiResourceListUncached(apiVersion)
+		result, err := c.apiResourceListUncached(apiVersion)
+		if result == nil {
+			return nil, err
+		}
+		return result, err
 	})
 	if err != nil {
 		// singleflight may return (nil, err); also handle partial results.
