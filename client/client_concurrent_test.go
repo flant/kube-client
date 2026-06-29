@@ -237,11 +237,10 @@ func TestAPIResourceListTypedNilNoPanic(t *testing.T) {
 	c.Interface = k8sClient
 	c.cachedDiscovery = &erroringDiscovery{cachedFakeDiscovery: fd}
 
-	// Before the fix this panicked:
-	//   runtime error: invalid memory address or nil pointer dereference
-	//   client.go:496: return v.(*apiResourceListResult).lists, err
-	_, err := c.APIResourceList("custom.metrics.k8s.io/v1beta2")
-	assert.Error(t, err)
+	assert.NotPanics(t, func() {
+		_, err := c.APIResourceList("custom.metrics.k8s.io/v1beta2")
+		assert.Error(t, err)
+	})
 }
 
 // TestConcurrentMixedOpsNoRace is the most comprehensive test: all discovery
