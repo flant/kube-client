@@ -489,6 +489,7 @@ func (c *Client) apiResourceList(apiVersion string) ([]*metav1.APIResourceList, 
 		if result == nil {
 			return nil, err
 		}
+
 		return result, err
 	})
 	if err != nil {
