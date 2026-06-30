@@ -539,6 +539,7 @@ func (s *sfCachedDiscovery) ServerGroupsAndResources() ([]*metav1.APIGroup, []*m
 func (s *sfCachedDiscovery) Invalidate() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	s.CachedDiscoveryInterface.Invalidate()
 }
 
@@ -584,6 +585,7 @@ func (c *Client) apiResourceListUncached(apiVersion string) ([]*metav1.APIResour
 		} else {
 			rawDisc = c.Discovery()
 		}
+
 		switch rawDisc.(type) {
 		case *fakediscovery.FakeDiscovery:
 			// FakeDiscovery does not implement ServerPreferredResources method
@@ -751,7 +753,7 @@ func (c *Client) ToRawKubeConfigLoader() clientcmd.ClientConfig {
 // calls to ServerResourcesForGroupVersion are deduplicated by the same
 // singleflight group used by APIResourceList, preventing disk-encoding races.
 func (c *Client) ToRESTMapper() (meta.RESTMapper, error) {
-	var disc discovery.CachedDiscoveryInterface = c.cachedDiscovery
+	disc := c.cachedDiscovery
 	if d := c.initSFDiscovery(); d != nil {
 		disc = d
 	}
