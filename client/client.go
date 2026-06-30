@@ -98,13 +98,16 @@ type Client struct {
 	schema           *runtime.Scheme
 	restConfig       *rest.Config
 	logger           *log.Logger
-	// invalidateMu protects cachedDiscovery.Invalidate() which is not
-	// goroutine-safe.
-	invalidateMu sync.Mutex
-	// discoverySF deduplicates concurrent discovery calls for the same key
-	// so that the upstream disk cache does not encode the same shared
-	// *metav1.APIResourceList object from multiple goroutines simultaneously
-	// (writeCachedFile → runtime.Encode mutates TypeMeta without holding a lock).
+	// sfDiscovery wraps cachedDiscovery with GV-level singleflight deduplication
+	// and mutex-protected Invalidate. All discovery calls go through this wrapper
+	// so that every code path (APIResourceList, ToRESTMapper, ToDiscoveryClient)
+	// is protected. Initialized lazily via sfDiscoveryOnce.
+	sfDiscovery     *sfCachedDiscovery
+	sfDiscoveryOnce sync.Once
+	// discoverySF deduplicates concurrent calls at the apiVersion-request level
+	// (key = "apiResourceList:"+apiVersion), sharing the returned
+	// []*metav1.APIResourceList across goroutines that arrive during the same
+	// in-flight request.
 	discoverySF singleflight.Group
 	// acceptOnlyJSONContentType
 	// use only JSON for interactions with kube-api
@@ -458,6 +461,10 @@ func getInClusterConfig() (*rest.Config, string, error) {
 // APIResourceList fetches lists of APIResource objects from cluster. It returns all preferred
 // resources if apiVersion is empty. An array with one list is returned if apiVersion is valid.
 //
+// The returned slice and its *metav1.APIResourceList elements may be shared
+// across goroutines that joined the same singleflight call. Callers must treat
+// the result as read-only and must not modify the returned objects.
+//
 // NOTE that fetching all preferred resources can give errors if there are non-working
 // api controllers in cluster.
 func (c *Client) APIResourceList(apiVersion string) ([]*metav1.APIResourceList, error) {
@@ -475,44 +482,119 @@ func (c *Client) APIResourceList(apiVersion string) ([]*metav1.APIResourceList, 
 	return lists, nil
 }
 
-// apiResourceListResult holds the result of a singleflight discovery call.
-type apiResourceListResult struct {
-	lists []*metav1.APIResourceList
+// sfCachedDiscovery wraps a CachedDiscoveryInterface and deduplicates concurrent
+// calls to ServerResourcesForGroupVersion through an internal singleflight group,
+// using the group-version string as the key.  This prevents the upstream disk
+// cache from encoding the same shared *metav1.APIResourceList from multiple
+// goroutines simultaneously (writeCachedFile → runtime.Encode mutates TypeMeta
+// without holding a lock).
+//
+// ServerPreferredResources and ServerGroupsAndResources are overridden to route
+// each group version through our ServerResourcesForGroupVersion on non-aggregated
+// servers. For servers that implement AggregatedDiscoveryInterface the underlying
+// client is used directly to preserve the single-round-trip performance benefit
+// (aggregated discovery does not call ServerResourcesForGroupVersion per GV).
+//
+// Invalidate is mutex-protected because the disk-backed implementation is not
+// goroutine-safe.
+type sfCachedDiscovery struct {
+	discovery.CachedDiscoveryInterface
+	sf singleflight.Group
+	mu sync.Mutex
+}
+
+func (s *sfCachedDiscovery) ServerResourcesForGroupVersion(groupVersion string) (*metav1.APIResourceList, error) {
+	v, err, _ := s.sf.Do(groupVersion, func() (any, error) {
+		return s.CachedDiscoveryInterface.ServerResourcesForGroupVersion(groupVersion)
+	})
+	if v == nil {
+		return nil, err
+	}
+
+	return v.(*metav1.APIResourceList), err
+}
+
+// ServerPreferredResources routes through the package-level helper with s as
+// receiver so that each group version's disk write is serialized by our
+// singleflight. Aggregated-discovery servers are delegated directly to avoid
+// forcing N per-GV API calls when one round trip suffices.
+func (s *sfCachedDiscovery) ServerPreferredResources() ([]*metav1.APIResourceList, error) {
+	if _, ok := s.CachedDiscoveryInterface.(discovery.AggregatedDiscoveryInterface); ok {
+		return s.CachedDiscoveryInterface.ServerPreferredResources()
+	}
+
+	return discovery.ServerPreferredResources(s)
+}
+
+// ServerGroupsAndResources routes through the package-level helper with s as
+// receiver for non-aggregated servers. See ServerPreferredResources.
+func (s *sfCachedDiscovery) ServerGroupsAndResources() ([]*metav1.APIGroup, []*metav1.APIResourceList, error) {
+	if _, ok := s.CachedDiscoveryInterface.(discovery.AggregatedDiscoveryInterface); ok {
+		return s.CachedDiscoveryInterface.ServerGroupsAndResources()
+	}
+
+	return discovery.ServerGroupsAndResources(s)
+}
+
+func (s *sfCachedDiscovery) Invalidate() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.CachedDiscoveryInterface.Invalidate()
+}
+
+func (c *Client) initSFDiscovery() *sfCachedDiscovery {
+	c.sfDiscoveryOnce.Do(func() {
+		if c.cachedDiscovery != nil {
+			c.sfDiscovery = &sfCachedDiscovery{CachedDiscoveryInterface: c.cachedDiscovery}
+		}
+	})
+
+	return c.sfDiscovery
 }
 
 func (c *Client) apiResourceList(apiVersion string) ([]*metav1.APIResourceList, error) {
 	// Deduplicate concurrent calls for the same apiVersion. This prevents
-	// the upstream disk cache from encoding the same shared object in
-	// parallel, which causes a race on TypeMeta fields.
+	// redundant apiResourceListUncached calls and shares the full
+	// []*metav1.APIResourceList result across all goroutines that joined the
+	// same in-flight request.
+	//
+	// GV-level deduplication (preventing concurrent disk writes for the same
+	// group version across different call paths) is handled inside sfCachedDiscovery.
 	v, err, _ := c.discoverySF.Do("apiResourceList:"+apiVersion, func() (any, error) {
 		return c.apiResourceListUncached(apiVersion)
 	})
-	if err != nil {
-		// singleflight may return (nil, err); also handle partial results.
-		if v == nil {
-			return nil, err
-		}
-
-		return v.(*apiResourceListResult).lists, err
+	if v == nil {
+		return nil, err
 	}
 
-	return v.(*apiResourceListResult).lists, nil
+	return v.([]*metav1.APIResourceList), err
 }
 
-func (c *Client) apiResourceListUncached(apiVersion string) (*apiResourceListResult, error) {
+func (c *Client) apiResourceListUncached(apiVersion string) ([]*metav1.APIResourceList, error) {
 	if apiVersion == "" {
 		// Get all preferred resources.
 		// Can return errors if api controllers are not available.
-		switch c.discovery().(type) {
+		//
+		// Determine the raw discovery type without the sfCachedDiscovery wrapper.
+		// When c.cachedDiscovery is nil the client falls back to c.Interface's
+		// discovery, which may be a *fakediscovery.FakeDiscovery.
+		var rawDisc discovery.DiscoveryInterface
+		if c.cachedDiscovery != nil {
+			rawDisc = c.cachedDiscovery
+		} else {
+			rawDisc = c.Discovery()
+		}
+
+		switch rawDisc.(type) {
 		case *fakediscovery.FakeDiscovery:
 			// FakeDiscovery does not implement ServerPreferredResources method
 			// lets return all possible resources, its better then nil
 			_, res, err := c.discovery().ServerGroupsAndResources()
-			return &apiResourceListResult{lists: res}, err
+			return res, err
 
 		default:
-			res, err := c.discovery().ServerPreferredResources()
-			return &apiResourceListResult{lists: res}, err
+			return c.discovery().ServerPreferredResources()
 		}
 	}
 
@@ -528,7 +610,7 @@ func (c *Client) apiResourceListUncached(apiVersion string) (*apiResourceListRes
 		return nil, errors.Wrapf(err, "apiVersion '%s' has no supported resources in cluster", apiVersion)
 	}
 
-	return &apiResourceListResult{lists: []*metav1.APIResourceList{list}}, nil
+	return []*metav1.APIResourceList{list}, nil
 }
 
 // APIResource fetches APIResource object from cluster that specifies the name of a resource and whether it is namespaced.
@@ -588,8 +670,8 @@ func (c *Client) GroupVersionResource(apiVersion, kind string) (schema.GroupVers
 }
 
 func (c *Client) discovery() discovery.DiscoveryInterface {
-	if c.cachedDiscovery != nil {
-		return c.cachedDiscovery
+	if d := c.initSFDiscovery(); d != nil {
+		return d
 	}
 
 	return c.Discovery()
@@ -604,11 +686,8 @@ func (c *Client) InvalidateDiscoveryCache() {
 // invalidateDiscovery resets the cached discovery state so that subsequent
 // calls fetch fresh data from the API server. It is goroutine-safe.
 func (c *Client) invalidateDiscovery() {
-	c.invalidateMu.Lock()
-	defer c.invalidateMu.Unlock()
-
-	if c.cachedDiscovery != nil {
-		c.cachedDiscovery.Invalidate()
+	if d := c.initSFDiscovery(); d != nil {
+		d.Invalidate() // sfCachedDiscovery.Invalidate holds its own mutex
 	}
 }
 
@@ -654,7 +733,15 @@ func (c *Client) ToRESTConfig() (*rest.Config, error) {
 	return c.restConfig, nil
 }
 
+// ToDiscoveryClient returns the discovery client wrapped in sfCachedDiscovery,
+// which serializes concurrent ServerResourcesForGroupVersion calls through a
+// singleflight group (preventing disk-encoding races) and protects Invalidate
+// with a mutex.
 func (c *Client) ToDiscoveryClient() (discovery.CachedDiscoveryInterface, error) {
+	if d := c.initSFDiscovery(); d != nil {
+		return d, nil
+	}
+
 	return c.cachedDiscovery, nil
 }
 
@@ -662,9 +749,17 @@ func (c *Client) ToRawKubeConfigLoader() clientcmd.ClientConfig {
 	return getClientConfig(c.contextName, c.configPath)
 }
 
+// ToRESTMapper returns a RESTMapper backed by sfCachedDiscovery so that mapper
+// calls to ServerResourcesForGroupVersion are deduplicated by the same
+// singleflight group used by APIResourceList, preventing disk-encoding races.
 func (c *Client) ToRESTMapper() (meta.RESTMapper, error) {
-	mapper := restmapper.NewDeferredDiscoveryRESTMapper(c.cachedDiscovery)
-	expander := restmapper.NewShortcutExpander(mapper, c.cachedDiscovery,
+	disc := c.cachedDiscovery
+	if d := c.initSFDiscovery(); d != nil {
+		disc = d
+	}
+
+	mapper := restmapper.NewDeferredDiscoveryRESTMapper(disc)
+	expander := restmapper.NewShortcutExpander(mapper, disc,
 		func(warning string) {
 			c.logger.Warn("warning", slog.String("warning", warning))
 		})
