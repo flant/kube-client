@@ -222,10 +222,14 @@ func (d *erroringDiscovery) ServerResourcesForGroupVersion(_ string) (*metav1.AP
 	return nil, fmt.Errorf("the server could not find the requested resource")
 }
 
-// TestAPIResourceListTypedNilNoPanic reproduces the nil pointer dereference that
-// occurred when the discovery backend returned a typed nil on error. The typed nil
-// (*apiResourceListResult)(nil) stored in an any interface is non-nil, so the old
-// v == nil guard was bypassed and v.(*apiResourceListResult).lists panicked.
+// TestAPIResourceListTypedNilNoPanic verifies that when the discovery backend
+// returns (nil, err) for a group version, APIResourceList does not panic and
+// correctly propagates the error.
+//
+// The root fix is structural: apiResourceListUncached now returns
+// []*metav1.APIResourceList directly instead of a *apiResourceListResult
+// pointer wrapper. A nil slice stored in any is safe to type-assert (returns
+// nil without a dereference), so there is no typed-nil-in-interface hazard.
 func TestAPIResourceListTypedNilNoPanic(t *testing.T) {
 	k8sClient := fake.NewSimpleClientset()
 	fd := &cachedFakeDiscovery{
