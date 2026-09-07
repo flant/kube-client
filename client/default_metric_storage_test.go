@@ -7,8 +7,9 @@ import (
 )
 
 // Two clients in one process must not fight over prometheus.DefaultRegisterer.
-// Each Init creates its own defaultMetricStorage, so the per-instance dedup map
-// always misses on the second client; the registry must absorb the duplicate.
+// Each Init creates its own defaultMetricStorage, so its per-instance
+// deduplication map always misses on the second client; the registry must
+// absorb the duplicate.
 func TestInitTwiceDoesNotPanic(t *testing.T) {
 	t.Setenv("FLANT_KUBE_CLIENT_IN_MEMORY_DISCOVERY_CACHE", "1")
 
