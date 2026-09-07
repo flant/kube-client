@@ -1,6 +1,7 @@
 package client
 
 import (
+	"errors"
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -30,7 +31,21 @@ func (s *defaultMetricStorage) RegisterCounter(metric string, labels map[string]
 	}
 
 	cv := prometheus.NewCounterVec(prometheus.CounterOpts{Name: metric}, labelKeys(labels))
-	prometheus.MustRegister(cv)
+
+	if err := prometheus.Register(cv); err != nil {
+		var are prometheus.AlreadyRegisteredError
+		if !errors.As(err, &are) {
+			return nil
+		}
+
+		existing, ok := are.ExistingCollector.(*prometheus.CounterVec)
+		if !ok {
+			return nil
+		}
+
+		cv = existing
+	}
+
 	s.counters[metric] = cv
 
 	return cv
@@ -60,7 +75,21 @@ func (s *defaultMetricStorage) RegisterHistogram(metric string, labels map[strin
 		Name:    metric,
 		Buckets: buckets,
 	}, labelKeys(labels))
-	prometheus.MustRegister(hv)
+
+	if err := prometheus.Register(hv); err != nil {
+		var are prometheus.AlreadyRegisteredError
+		if !errors.As(err, &are) {
+			return nil
+		}
+
+		existing, ok := are.ExistingCollector.(*prometheus.HistogramVec)
+		if !ok {
+			return nil
+		}
+
+		hv = existing
+	}
+
 	s.histograms[metric] = hv
 
 	return hv
