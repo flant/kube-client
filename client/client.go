@@ -79,6 +79,18 @@ func NewFake(gvr map[schema.GroupVersionResource]string) *Client {
 	}
 }
 
+// IsWatchListSemanticsUnSupported forwards the WatchList opt-out of the embedded clientset
+// (the fake one reports true) to client-go reflectors. Embedding kubernetes.Interface only
+// promotes the interface methods, so without this client-go 0.35+ informers built on a fake
+// Client wait forever for the initial-events bookmark.
+func (c *Client) IsWatchListSemanticsUnSupported() bool {
+	// A local assertion instead of watchlist.DoesClientNotSupportWatchListSemantics keeps
+	// kube-client buildable with client-go < 0.35, where that helper does not exist.
+	optOut, ok := c.Interface.(interface{ IsWatchListSemanticsUnSupported() bool })
+
+	return ok && optOut.IsWatchListSemanticsUnSupported()
+}
+
 type Client struct {
 	kubernetes.Interface
 	cachedDiscovery  discovery.CachedDiscoveryInterface
