@@ -770,3 +770,18 @@ func (c *Client) ToRESTMapper() (meta.RESTMapper, error) {
 func (c *Client) NewBuilder() *resource.Builder {
 	return resource.NewBuilder(c)
 }
+
+// IsWatchListSemanticsUnSupported proxies the capability check to the wrapped clientset.
+//
+// client-go 0.35 enables the WatchListClient feature gate by default. Its fake clientset
+// does not implement WatchList and reports that through this method, but the method is not
+// part of kubernetes.Interface, so embedding hides it. Without this proxy the reflector
+// keeps WatchList enabled against a fake client and never syncs.
+func (c *Client) IsWatchListSemanticsUnSupported() bool {
+	u, ok := c.Interface.(interface{ IsWatchListSemanticsUnSupported() bool })
+	if !ok {
+		return false
+	}
+
+	return u.IsWatchListSemanticsUnSupported()
+}
