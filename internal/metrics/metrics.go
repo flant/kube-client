@@ -12,9 +12,10 @@
 // The naming pattern is modelled after
 // https://github.com/flant/shell-operator/blob/main/pkg/metrics/metrics.go:
 // metric name constants contain a {PREFIX} placeholder. Call ReplacePrefix to
-// obtain the concrete name for a given prefix. Unlike the shell-operator
-// approach, prefix resolution is per-instance rather than global, so multiple
-// Client objects with different prefixes can coexist safely.
+// obtain the concrete name for a given prefix. Prefix resolution is
+// per-instance, but client-go accepts its metric backends only once per
+// process (k8s.io/client-go/tools/metrics.Register), so only the first
+// initialized Client's prefix, labels and storage receive samples.
 package metrics
 
 import (
@@ -78,11 +79,13 @@ var kubernetesClientRequestBuckets = []float64{
 // templates. extraLabels are merged into the label set of each metric and let
 // callers attach custom dimensions (for example "operator").
 func RegisterKubernetesClientMetrics(storage Storage, extraLabels map[string]string, prefix string) {
-	storage.RegisterHistogram(
-		ReplacePrefix(KubernetesClientRequestLatencySeconds, prefix),
-		mergeLabels(extraLabels, LabelVerb, LabelURL),
-		kubernetesClientRequestBuckets,
-	)
+	for _, name := range []string{KubernetesClientRequestLatencySeconds, KubernetesClientRateLimiterLatencySeconds} {
+		storage.RegisterHistogram(
+			ReplacePrefix(name, prefix),
+			mergeLabels(extraLabels, LabelVerb, LabelURL),
+			kubernetesClientRequestBuckets,
+		)
+	}
 
 	storage.RegisterCounter(
 		ReplacePrefix(KubernetesClientRequestResultTotal, prefix),
@@ -90,33 +93,44 @@ func RegisterKubernetesClientMetrics(storage Storage, extraLabels map[string]str
 	)
 }
 
-// NewRateLimiterLatency returns a client-go metrics.LatencyMetric backed by
-// the given storage. The metric name is resolved from the template using
-// prefix at construction time, so the returned backend is independent of any
-// global state.
-func NewRateLimiterLatency(storage Storage, prefix string) clientgometrics.LatencyMetric {
-	return RateLimiterLatency{
-		storage:    storage,
-		metricName: ReplacePrefix(KubernetesClientRateLimiterLatencySeconds, prefix),
+// NewRequestLatency returns a client-go metrics.LatencyMetric that observes
+// the duration of Kubernetes API requests.
+func NewRequestLatency(storage Storage, extraLabels map[string]string, prefix string) clientgometrics.LatencyMetric {
+	return Latency{
+		storage:     storage,
+		extraLabels: extraLabels,
+		metricName:  ReplacePrefix(KubernetesClientRequestLatencySeconds, prefix),
 	}
 }
 
-// RateLimiterLatency observes client-go rate limiter latency.
-type RateLimiterLatency struct {
-	storage    Storage
-	metricName string
+// NewRateLimiterLatency returns a client-go metrics.LatencyMetric that
+// observes how long requests wait in the client-go rate limiter.
+func NewRateLimiterLatency(storage Storage, extraLabels map[string]string, prefix string) clientgometrics.LatencyMetric {
+	return Latency{
+		storage:     storage,
+		extraLabels: extraLabels,
+		metricName:  ReplacePrefix(KubernetesClientRateLimiterLatencySeconds, prefix),
+	}
 }
 
-func (r RateLimiterLatency) Observe(_ context.Context, verb string, u url.URL, latency time.Duration) {
-	r.storage.HistogramObserve(
-		r.metricName,
-		latency.Seconds(),
-		map[string]string{
-			LabelVerb: verb,
-			LabelURL:  u.String(),
-		},
-		nil,
-	)
+// Latency observes a client-go latency into one histogram. The label set
+// matches the one registered by RegisterKubernetesClientMetrics.
+type Latency struct {
+	storage     Storage
+	extraLabels map[string]string
+	metricName  string
+}
+
+func (l Latency) Observe(_ context.Context, verb string, u url.URL, latency time.Duration) {
+	labels := make(map[string]string, len(l.extraLabels)+2)
+	for k, v := range l.extraLabels {
+		labels[k] = v
+	}
+
+	labels[LabelVerb] = verb
+	labels[LabelURL] = u.String()
+
+	l.storage.HistogramObserve(l.metricName, latency.Seconds(), labels, kubernetesClientRequestBuckets)
 }
 
 // NewRequestResult returns a client-go metrics.ResultMetric backed by the

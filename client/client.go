@@ -3,7 +3,9 @@ package client
 import (
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -35,7 +37,6 @@ import (
 	clientgometrics "k8s.io/client-go/tools/metrics"
 
 	internalmetrics "github.com/flant/kube-client/internal/metrics"
-	_ "github.com/flant/kube-client/klogtolog" // route klog messages from client-go to log
 )
 
 const (
@@ -114,8 +115,14 @@ type Client struct {
 	acceptOnlyJSONContentType bool
 }
 
-// ReloadDynamic creates new dynamic client with the new set of CRDs.
+// ReloadDynamic replaces the fake dynamic client with a new one that knows the
+// given set of CRDs. It does nothing for a Client connected to a real cluster.
 func (c *Client) ReloadDynamic(gvrList map[schema.GroupVersionResource]string) {
+	if _, ok := c.dynamicClient.(*fakedynamic.FakeDynamicClient); !ok {
+		c.logger.Warn("ReloadDynamic is supported only for a fake client, ignoring")
+		return
+	}
+
 	c.dynamicClient = fakedynamic.NewSimpleDynamicClientWithCustomListKinds(c.schema, gvrList)
 }
 
@@ -226,7 +233,8 @@ func (c *Client) Init() error {
 			return fmt.Errorf("rest config host can't be empty")
 		}
 
-		config = c.restConfig
+		// Copy so the caller's config is not changed by the settings applied below.
+		config = rest.CopyConfig(c.restConfig)
 		defaultNs = "default"
 		configType = "rest-config"
 	case c.server == "":
@@ -236,33 +244,21 @@ func (c *Client) Init() error {
 		config, defaultNs, outOfClusterErr = getOutOfClusterConfig(c.contextName, c.configPath)
 
 		if config == nil {
-			if hasInClusterConfig() {
-				// Try to configure as inCluster
-				config, defaultNs, err = getInClusterConfig()
-				if err != nil {
-					if c.configPath != "" || c.contextName != "" {
-						if outOfClusterErr != nil {
-							err = fmt.Errorf("out-of-cluster config error: %v, in-cluster config error: %v", outOfClusterErr, err)
-							c.logger.Error("configuration problems", slog.String("error", err.Error()))
+			if outOfClusterErr == nil {
+				outOfClusterErr = fmt.Errorf("no kubernetes client config found")
+			}
 
-							return err
-						}
+			// An explicitly requested kubeconfig or context must fail loudly:
+			// falling back to the in-cluster config would talk to another cluster.
+			if c.configPath != "" || c.contextName != "" || !hasInClusterConfig() {
+				c.logger.Error("out-of-cluster problem", slog.String("error", outOfClusterErr.Error()))
+				return outOfClusterErr
+			}
 
-						return fmt.Errorf("in-cluster config is not found")
-					}
-
-					c.logger.Error("in-cluster problem", slog.String("error", err.Error()))
-
-					return err
-				}
-			} else {
-				// if not in cluster return outOfCluster error
-				if outOfClusterErr != nil {
-					c.logger.Error("out-of-cluster problem", slog.String("error", outOfClusterErr.Error()))
-					return outOfClusterErr
-				}
-
-				return fmt.Errorf("no kubernetes client config found")
+			config, defaultNs, err = getInClusterConfig()
+			if err != nil {
+				c.logger.Error("in-cluster problem", slog.String("error", err.Error()))
+				return err
 			}
 
 			configType = "in-cluster"
@@ -321,9 +317,12 @@ func (c *Client) Init() error {
 	}
 
 	internalmetrics.RegisterKubernetesClientMetrics(c.metricStorage, c.metricLabels, c.metricPrefix)
+	// client-go accepts metric backends once per process: only the first
+	// initialized Client wires its storage, prefix and labels into client-go.
 	clientgometrics.Register(clientgometrics.RegisterOpts{
-		RequestLatency: internalmetrics.NewRateLimiterLatency(c.metricStorage, c.metricPrefix),
-		RequestResult:  internalmetrics.NewRequestResult(c.metricStorage, c.metricLabels, c.metricPrefix),
+		RequestLatency:     internalmetrics.NewRequestLatency(c.metricStorage, c.metricLabels, c.metricPrefix),
+		RateLimiterLatency: internalmetrics.NewRateLimiterLatency(c.metricStorage, c.metricLabels, c.metricPrefix),
+		RequestResult:      internalmetrics.NewRequestResult(c.metricStorage, c.metricLabels, c.metricPrefix),
 	})
 
 	if _, fd := os.LookupEnv(`FLANT_KUBE_CLIENT_IN_MEMORY_DISCOVERY_CACHE`); fd {
@@ -346,18 +345,34 @@ func (c *Client) Init() error {
 	return nil
 }
 
+// Disk cache directories are created once per process and shared by every
+// Client, so repeated Init calls do not leave new directories behind.
+var (
+	diskCacheDirsOnce  sync.Once
+	diskCacheDiscovery string
+	diskCacheHTTP      string
+	diskCacheDirsErr   error
+)
+
 func newDiskCachedDiscovery(config *rest.Config) (*disk.CachedDiscoveryClient, error) {
-	cacheDiscoveryDir, err := os.MkdirTemp("", "kube-cache-discovery-*")
-	if err != nil {
-		return nil, err
+	diskCacheDirsOnce.Do(func() {
+		diskCacheDiscovery, diskCacheDirsErr = os.MkdirTemp("", "kube-cache-discovery-*")
+		if diskCacheDirsErr != nil {
+			return
+		}
+
+		diskCacheHTTP, diskCacheDirsErr = os.MkdirTemp("", "kube-cache-http-*")
+	})
+
+	if diskCacheDirsErr != nil {
+		return nil, diskCacheDirsErr
 	}
 
-	cacheHttpDir, err := os.MkdirTemp("", "kube-cache-http-*")
-	if err != nil {
-		return nil, err
-	}
+	// Discovery files are not keyed by host, so each API server gets its own
+	// subdirectory. HTTP cache entries are keyed by full URL and can be shared.
+	discoveryDir := filepath.Join(diskCacheDiscovery, url.PathEscape(config.Host))
 
-	cachedDiscovery, err := disk.NewCachedDiscoveryClientForConfig(config, cacheDiscoveryDir, cacheHttpDir, 10*time.Minute)
+	cachedDiscovery, err := disk.NewCachedDiscoveryClientForConfig(config, discoveryDir, diskCacheHTTP, 10*time.Minute)
 	if err != nil {
 		return nil, err
 	}
@@ -469,17 +484,48 @@ func getInClusterConfig() (*rest.Config, string, error) {
 // api controllers in cluster.
 func (c *Client) APIResourceList(apiVersion string) ([]*metav1.APIResourceList, error) {
 	lists, err := c.apiResourceList(apiVersion)
-	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			// *errors.errorString type is here, we can't check it another way
-			c.invalidateDiscovery()
-			return c.apiResourceList(apiVersion)
-		}
-
+	// *errors.errorString type is here, we can't check it another way
+	if err == nil || !strings.Contains(err.Error(), "not found") {
 		return lists, err
 	}
 
-	return lists, nil
+	if apiVersion == "" {
+		c.invalidateDiscovery()
+		return c.apiResourceList(apiVersion)
+	}
+
+	// The group version may have appeared after the cache was filled, for
+	// example a CRD installed by a parallel hook. Ask the server for this one
+	// group version instead of dropping the whole cache on every miss.
+	list, freshErr := c.serverResourcesForGroupVersion(apiVersion)
+	if freshErr != nil {
+		return lists, err
+	}
+
+	c.invalidateDiscovery()
+
+	return []*metav1.APIResourceList{list}, nil
+}
+
+// serverResourcesForGroupVersion asks the API server for one group version,
+// bypassing the discovery cache. It costs one small request, so callers that
+// wait for a CRD to appear can call it on every lookup miss.
+func (c *Client) serverResourcesForGroupVersion(apiVersion string) (*metav1.APIResourceList, error) {
+	gv, err := schema.ParseGroupVersion(apiVersion)
+	if err != nil {
+		return nil, fmt.Errorf("apiVersion '%s' is invalid", apiVersion)
+	}
+
+	list, err := c.Discovery().ServerResourcesForGroupVersion(gv.String())
+	if err != nil {
+		return nil, err
+	}
+
+	if list == nil {
+		return nil, apiErrors.NewNotFound(schema.GroupResource{Group: gv.Group}, gv.Version)
+	}
+
+	return list, nil
 }
 
 // sfCachedDiscovery wraps a CachedDiscoveryInterface and deduplicates concurrent
@@ -622,8 +668,7 @@ func (c *Client) APIResource(apiVersion, kind string) (*metav1.APIResource, erro
 	resource, err := c.apiResource(apiVersion, kind)
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
-			c.invalidateDiscovery()
-			resource, err = c.apiResource(apiVersion, kind)
+			resource, err = c.apiResourceFromServer(apiVersion, kind)
 		} else {
 			return nil, fmt.Errorf("apiVersion '%s', kind '%s' is not supported by cluster: %w", apiVersion, kind, err)
 		}
@@ -632,6 +677,32 @@ func (c *Client) APIResource(apiVersion, kind string) (*metav1.APIResource, erro
 	if err != nil {
 		return nil, fmt.Errorf("apiVersion '%s', kind '%s' is not supported by cluster: %w", apiVersion, kind, err)
 	}
+
+	return resource, nil
+}
+
+// apiResourceFromServer looks a kind up after a cache miss. The resource may
+// be on its way, for example a CRD installed by a parallel hook, so the lookup
+// goes to the server. With apiVersion set it is one request for that group
+// version, and the cache is invalidated only when the kind is really there.
+func (c *Client) apiResourceFromServer(apiVersion, kind string) (*metav1.APIResource, error) {
+	if apiVersion == "" {
+		c.invalidateDiscovery()
+		return c.apiResource(apiVersion, kind)
+	}
+
+	list, err := c.serverResourcesForGroupVersion(apiVersion)
+	if err != nil {
+		return nil, err
+	}
+
+	resource := getApiResourceFromResourceLists(kind, []*metav1.APIResourceList{list})
+	if resource == nil {
+		gv, _ := schema.ParseGroupVersion(apiVersion)
+		return nil, apiErrors.NewNotFound(schema.GroupResource{Group: gv.Group, Resource: kind}, "")
+	}
+
+	c.invalidateDiscovery()
 
 	return resource, nil
 }
