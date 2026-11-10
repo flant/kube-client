@@ -1,10 +1,8 @@
 // Package klogtolog overrides output writer for klog to log messages with log.
 //
-// Usage:
+// Importing the package changes nothing; call InitAdapter once at startup:
 //
-//	import (
-//	  _ "github.com/flant/kube-client/klogtolog"
-//	)
+//	klogtolog.InitAdapter(debug, logger)
 package klogtolog
 
 import (
@@ -56,6 +54,10 @@ var klogRe = regexp.MustCompile(`^.* .*  .* (.*\d+)\] (.*)\n$`)
 // {"level":"info","msg":"Info from klog powered lib (lib_methods.go:12)","file":"lib_methods.go:12","time":"2025-07-04T19:39:28+03:00"}
 // {"level":"error","msg":"Error from klog powered lib (adapter_test.go:48)","file":"adapter_test.go:48", "stacktrace": ... ,"time":"2025-07-04T19:39:28+03:00"}
 func (w *writer) Write(msg []byte) (int, error) {
+	if len(msg) == 0 {
+		return 0, nil
+	}
+
 	logger := w.logger
 
 	groups := klogRe.FindStringSubmatch(string(msg))
@@ -81,5 +83,5 @@ func (w *writer) Write(msg []byte) (int, error) {
 		logger.Info(message)
 	}
 
-	return 0, nil
+	return len(msg), nil
 }
