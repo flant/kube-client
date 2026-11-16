@@ -113,6 +113,11 @@ type Client struct {
 	// acceptOnlyJSONContentType
 	// use only JSON for interactions with kube-api
 	acceptOnlyJSONContentType bool
+	// cbor asks Init to let the client receive CBOR, see WithCBOR.
+	cbor bool
+	// cborRequests asks Init to also send request bodies in CBOR, see
+	// WithCBORRequests.
+	cborRequests bool
 }
 
 // ReloadDynamic replaces the fake dynamic client with a new one that knows the
@@ -295,13 +300,16 @@ func (c *Client) Init() error {
 		config.Timeout = c.timeout
 	}
 
+	// Must run before the clients are created: they read the gate once.
+	cborAllowed := c.cbor && c.enableCBOR()
+
 	c.Interface, err = kubernetes.NewForConfig(config)
 	if err != nil {
 		c.logger.Error("configuration problem", slog.String("error", err.Error()))
 		return err
 	}
 
-	c.dynamicClient, err = dynamic.NewForConfig(config)
+	c.dynamicClient, err = c.newDynamicClient(config, cborAllowed)
 	if err != nil {
 		return err
 	}
