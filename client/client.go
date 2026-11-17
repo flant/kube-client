@@ -113,6 +113,8 @@ type Client struct {
 	// acceptOnlyJSONContentType
 	// use only JSON for interactions with kube-api
 	acceptOnlyJSONContentType bool
+	// cborDisabled keeps the dynamic client on JSON, see WithCBOR.
+	cborDisabled bool
 }
 
 // ReloadDynamic replaces the fake dynamic client with a new one that knows the
@@ -301,7 +303,7 @@ func (c *Client) Init() error {
 		return err
 	}
 
-	c.dynamicClient, err = dynamic.NewForConfig(config)
+	c.dynamicClient, err = c.newDynamicClient(config)
 	if err != nil {
 		return err
 	}
