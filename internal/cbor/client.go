@@ -5,9 +5,9 @@
 // gates ClientsAllowCBOR and ClientsPreferCBOR are on, which changes every
 // client in the process, and before v0.36 its decoder rejects arrays and maps
 // with more than 1024 elements, so it cannot read a list of more than 1024
-// objects. This package leaves the gates alone: it asks for CBOR in each
-// request, decodes it without that limit and converts request bodies to CBOR
-// in the transport.
+// objects. This package leaves the gates alone: once the API server confirms
+// CBOR, it asks for CBOR in each request, decodes it without that limit and
+// converts request bodies to CBOR in the transport.
 package cbor
 
 import (
@@ -19,19 +19,22 @@ import (
 	"mime"
 	"net/http"
 	"strconv"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	apicbor "k8s.io/apimachinery/pkg/runtime/serializer/cbor"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 )
 
 // Support is what an API server can do with CBOR.
-type Support int
+type Support int32
 
 const (
 	// None means the API server talks only JSON.
@@ -42,6 +45,27 @@ const (
 	// ResponsesAndRequests means the API server sends and reads CBOR.
 	ResponsesAndRequests
 )
+
+// ProbeTimeout bounds one call of Probe that ProbeLater makes.
+const ProbeTimeout = 5 * time.Second
+
+// Intervals between the calls of Probe that ProbeLater makes.
+var (
+	retryMinInterval = 10 * time.Second
+	retryMaxInterval = 5 * time.Minute
+)
+
+// SetRetryIntervals changes the intervals between the calls of Probe that
+// ProbeLater makes, for clients created after it, and returns a function that
+// restores them. It is meant for tests.
+func SetRetryIntervals(minInterval, maxInterval time.Duration) func() {
+	oldMin, oldMax := retryMinInterval, retryMaxInterval
+	retryMinInterval, retryMaxInterval = minInterval, maxInterval
+
+	return func() {
+		retryMinInterval, retryMaxInterval = oldMin, oldMax
+	}
+}
 
 // acceptHeader prefers CBOR; an API server without it answers in JSON.
 const acceptHeader = "application/cbor;q=1,application/json;q=0.9"
@@ -59,14 +83,16 @@ var selfDescribedCBOR = []byte{0xd9, 0xd9, 0xf7}
 // unstructuredEncoder writes CBOR as the dynamic client of client-go does.
 var unstructuredEncoder = apicbor.NewSerializer(unstructuredCreater{}, unstructuredTyper{})
 
-// Client is a dynamic client that asks for CBOR responses. After Probe finds
-// that the API server reads CBOR, it also sends create and update bodies in
-// CBOR.
+// Client is a dynamic client that talks JSON until Probe finds that the API
+// server supports CBOR. Then it asks for CBOR responses and, if the server
+// reads CBOR, sends create and update bodies in CBOR.
 type Client struct {
 	*dynamic.DynamicClient
 
-	rest   *rest.RESTClient
-	bodies *atomic.Bool
+	rest    *rest.RESTClient
+	support *atomic.Int32
+	bodies  *atomic.Bool
+	retry   *retrier
 }
 
 // NewClient creates a Client. It makes no requests.
@@ -89,15 +115,28 @@ func NewClient(config *rest.Config) (*Client, error) {
 		return nil, err
 	}
 
-	return &Client{
-		DynamicClient: dynamic.New(acceptCBOR{rc}),
-		rest:          rc,
-		bodies:        bodies,
-	}, nil
+	c := &Client{
+		rest:    rc,
+		support: &atomic.Int32{},
+		bodies:  bodies,
+		retry:   &retrier{},
+	}
+	c.retry.probe = c.Probe
+	c.DynamicClient = dynamic.New(acceptCBOR{RESTClient: rc, support: c.support, retry: c.retry})
+
+	return c, nil
 }
 
-// Probe asks the API server what it can do with CBOR and, if it reads CBOR
-// bodies, makes c send them. It creates up to two SelfSubjectReviews.
+// ProbeLater calls Probe again until the API server answers it, at intervals
+// growing from 10 seconds to 5 minutes. Calls are made in the background when
+// c builds a request, not on a timer, so a client nobody uses asks nothing
+// and leaves no goroutine behind. report gets the result of every call.
+func (c *Client) ProbeLater(report func(Support, error)) {
+	c.retry.plan(report)
+}
+
+// Probe asks the API server what it can do with CBOR and switches c to it. It
+// creates up to two SelfSubjectReviews.
 //
 // An API server without CBOR answers 406 or 415, which is not an error; an
 // error means the API server could not be asked.
@@ -109,6 +148,7 @@ func (c *Client) Probe(ctx context.Context) (Support, error) {
 	switch {
 	case err == nil:
 		c.bodies.Store(true)
+		c.support.Store(int32(ResponsesAndRequests))
 
 		return ResponsesAndRequests, nil
 	case apierrors.IsNotAcceptable(err), apierrors.IsUnsupportedMediaType(err):
@@ -121,6 +161,8 @@ func (c *Client) Probe(ctx context.Context) (Support, error) {
 
 	switch {
 	case err == nil:
+		c.support.Store(int32(Responses))
+
 		return Responses, nil
 	case apierrors.IsNotAcceptable(err):
 		return None, nil
@@ -190,15 +232,29 @@ func reviewBody(contentType string, annotations int) ([]byte, error) {
 	return runtime.Encode(unstructured.UnstructuredJSONScheme, review)
 }
 
-// acceptCBOR asks for CBOR in every request of the dynamic client. client-go
-// removes CBOR from the Accept header of a client while its feature gate is
-// off, so the header is set on each request instead.
+// acceptCBOR asks for CBOR in the requests of the dynamic client once the API
+// server has confirmed it. client-go removes CBOR from the Accept header of a
+// client while its feature gate is off, so the header is set on each request.
+// Building a request also starts a due call of Probe planned by ProbeLater.
 type acceptCBOR struct {
 	*rest.RESTClient
+
+	support *atomic.Int32
+	retry   *retrier
+}
+
+func (c acceptCBOR) accept(req *rest.Request) *rest.Request {
+	c.retry.trigger()
+
+	if Support(c.support.Load()) != None {
+		req.SetHeader("Accept", acceptHeader)
+	}
+
+	return req
 }
 
 func (c acceptCBOR) Verb(verb string) *rest.Request {
-	return c.RESTClient.Verb(verb).SetHeader("Accept", acceptHeader)
+	return c.accept(c.RESTClient.Verb(verb))
 }
 
 func (c acceptCBOR) Post() *rest.Request {
@@ -210,7 +266,7 @@ func (c acceptCBOR) Put() *rest.Request {
 }
 
 func (c acceptCBOR) Patch(pt types.PatchType) *rest.Request {
-	return c.RESTClient.Patch(pt).SetHeader("Accept", acceptHeader)
+	return c.accept(c.RESTClient.Patch(pt))
 }
 
 func (c acceptCBOR) Get() *rest.Request {
@@ -219,6 +275,74 @@ func (c acceptCBOR) Get() *rest.Request {
 
 func (c acceptCBOR) Delete() *rest.Request {
 	return c.Verb(http.MethodDelete)
+}
+
+// retrier calls Probe until the API server answers it. A call is started in
+// the background by trigger, once the interval since the previous call has
+// passed.
+type retrier struct {
+	probe func(context.Context) (Support, error)
+
+	planned atomic.Bool
+
+	mu          sync.Mutex
+	report      func(Support, error)
+	running     bool
+	next        time.Time
+	interval    time.Duration
+	maxInterval time.Duration
+}
+
+func (r *retrier) plan(report func(Support, error)) {
+	r.mu.Lock()
+	r.report = report
+	r.interval = retryMinInterval
+	r.maxInterval = retryMaxInterval
+	r.next = time.Now().Add(r.interval)
+	r.mu.Unlock()
+
+	r.planned.Store(true)
+}
+
+func (r *retrier) trigger() {
+	if !r.planned.Load() {
+		return
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.running || time.Now().Before(r.next) {
+		return
+	}
+
+	r.running = true
+
+	go r.run()
+}
+
+func (r *retrier) run() {
+	ctx, cancel := context.WithTimeout(context.Background(), ProbeTimeout)
+	defer cancel()
+
+	support, err := r.probe(ctx)
+
+	r.mu.Lock()
+	r.running = false
+
+	if err == nil {
+		r.planned.Store(false)
+	} else {
+		r.interval = min(2*r.interval, r.maxInterval)
+		r.next = time.Now().Add(wait.Jitter(r.interval, 0.2))
+	}
+
+	report := r.report
+	r.mu.Unlock()
+
+	if report != nil {
+		report(support, err)
+	}
 }
 
 // bodyTransport sends the JSON bodies of create and update requests in CBOR

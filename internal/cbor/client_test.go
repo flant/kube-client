@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -73,7 +74,7 @@ func TestListLongerThanOldDecoderLimit(t *testing.T) {
 	srv.SetCBOR(true)
 	srv.SetWidgets(2000)
 
-	list, err := widgets(newClient(t, srv.URL)).List(context.Background(), metav1.ListOptions{})
+	list, err := widgets(probedClient(t, srv)).List(context.Background(), metav1.ListOptions{})
 	require.NoError(t, err)
 
 	assert.Len(t, list.Items, 2000)
@@ -90,7 +91,7 @@ func TestCBORDecodesAsJSON(t *testing.T) {
 
 	jsonServer := cbortest.NewServer(t)
 
-	cborClient := newClient(t, cborServer.URL)
+	cborClient := probedClient(t, cborServer)
 	jsonClient := newClient(t, jsonServer.URL)
 
 	fromCBOR, err := widgets(cborClient).List(ctx, metav1.ListOptions{})
@@ -118,7 +119,7 @@ func TestErrorStatus(t *testing.T) {
 	srv := cbortest.NewServer(t)
 	srv.SetCBOR(true)
 
-	_, err := widgets(newClient(t, srv.URL)).Get(context.Background(), "missing", metav1.GetOptions{})
+	_, err := widgets(probedClient(t, srv)).Get(context.Background(), "missing", metav1.GetOptions{})
 
 	assert.True(t, apierrors.IsNotFound(err), err)
 	assert.Equal(t, runtime.ContentTypeCBOR, srv.LastRequest().Response)
@@ -128,7 +129,7 @@ func TestWatch(t *testing.T) {
 	srv := cbortest.NewServer(t)
 	srv.SetCBOR(true)
 
-	w, err := widgets(newClient(t, srv.URL)).Watch(context.Background(), metav1.ListOptions{})
+	w, err := widgets(probedClient(t, srv)).Watch(context.Background(), metav1.ListOptions{})
 	require.NoError(t, err)
 
 	defer w.Stop()
@@ -188,7 +189,8 @@ func TestCreateSendsCBORAfterProbe(t *testing.T) {
 
 	_, err := widgets(c).Create(ctx, obj, metav1.CreateOptions{})
 	require.NoError(t, err)
-	assert.Equal(t, runtime.ContentTypeJSON, srv.LastRequest().ContentType, "before Probe bodies are JSON")
+	assert.Equal(t, runtime.ContentTypeJSON, srv.LastRequest().ContentType, "before Probe the client talks JSON")
+	assert.Equal(t, runtime.ContentTypeJSON, srv.LastRequest().Response, "before Probe the client talks JSON")
 
 	support, err := c.Probe(ctx)
 	require.NoError(t, err)
@@ -197,6 +199,7 @@ func TestCreateSendsCBORAfterProbe(t *testing.T) {
 	created, err := widgets(c).Create(ctx, obj, metav1.CreateOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, runtime.ContentTypeCBOR, srv.LastRequest().ContentType)
+	assert.Equal(t, runtime.ContentTypeCBOR, srv.LastRequest().Response)
 	assert.Equal(t, obj.Object["spec"], created.Object["spec"])
 }
 
@@ -279,4 +282,106 @@ func TestBadRequestKeepsCBORBodies(t *testing.T) {
 	_, err = widgets(c).Create(ctx, newWidget("good", nil), metav1.CreateOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, runtime.ContentTypeCBOR, srv.LastRequest().ContentType)
+}
+
+// probeLater plans calls of Probe without waiting between them and returns
+// the errors they report.
+func probeLater(t *testing.T, c *Client) <-chan error {
+	t.Helper()
+	t.Cleanup(SetRetryIntervals(time.Nanosecond, time.Nanosecond))
+
+	results := make(chan error, 100)
+
+	c.ProbeLater(func(_ Support, err error) { results <- err })
+
+	return results
+}
+
+// nextResult uses the client, which starts a planned call of Probe, and
+// returns what the call reports.
+func nextResult(t *testing.T, c *Client, results <-chan error) error {
+	t.Helper()
+
+	_, _ = widgets(c).List(context.Background(), metav1.ListOptions{})
+
+	select {
+	case err := <-results:
+		return err
+	case <-time.After(5 * time.Second):
+		t.Fatal("Probe was not called again")
+
+		return nil
+	}
+}
+
+// An API server that could not be asked is asked again while the client is
+// used, and the same client switches to CBOR once the server answers.
+func TestProbeLaterSwitchesToCBOR(t *testing.T) {
+	ctx := context.Background()
+
+	srv := cbortest.NewServer(t)
+	srv.SetCBOR(true)
+	srv.SetUnavailable(true)
+
+	c := newClient(t, srv.URL)
+
+	_, err := c.Probe(ctx)
+	require.Error(t, err)
+
+	results := probeLater(t, c)
+
+	require.Error(t, nextResult(t, c, results), "the server is still unavailable")
+	require.Error(t, nextResult(t, c, results), "the server is still unavailable")
+
+	srv.SetUnavailable(false)
+
+	require.NoError(t, nextResult(t, c, results))
+
+	_, err = widgets(c).List(ctx, metav1.ListOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, runtime.ContentTypeCBOR, srv.LastRequest().Response)
+
+	_, err = widgets(c).Create(ctx, newWidget("new", nil), metav1.CreateOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, runtime.ContentTypeCBOR, srv.LastRequest().ContentType)
+}
+
+// Calls stop once the API server answers, here that it has no CBOR.
+func TestProbeLaterStopsAtAnswer(t *testing.T) {
+	ctx := context.Background()
+
+	srv := cbortest.NewServer(t)
+	srv.SetUnavailable(true)
+
+	c := newClient(t, srv.URL)
+	results := probeLater(t, c)
+
+	require.Error(t, nextResult(t, c, results))
+
+	srv.SetUnavailable(false)
+
+	require.NoError(t, nextResult(t, c, results))
+
+	probes := srv.RequestsTo(cbortest.SelfSubjectReviewPath)
+
+	for range 3 {
+		_, err := widgets(c).List(ctx, metav1.ListOptions{})
+		require.NoError(t, err)
+	}
+
+	assert.Equal(t, probes, srv.RequestsTo(cbortest.SelfSubjectReviewPath), "Probe must not be called after an answer")
+	assert.Equal(t, runtime.ContentTypeJSON, srv.LastRequest().Response)
+}
+
+// Probe is not called again before the interval passes.
+func TestProbeLaterWaitsForTheInterval(t *testing.T) {
+	srv := cbortest.NewServer(t)
+	srv.SetUnavailable(true)
+
+	c := newClient(t, srv.URL)
+	c.ProbeLater(func(Support, error) {})
+
+	_, _ = widgets(c).List(context.Background(), metav1.ListOptions{})
+
+	assert.Zero(t, srv.RequestsTo(cbortest.SelfSubjectReviewPath))
 }

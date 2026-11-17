@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -11,6 +12,7 @@ import (
 	"k8s.io/client-go/features"
 	"k8s.io/client-go/rest"
 
+	internalcbor "github.com/flant/kube-client/internal/cbor"
 	"github.com/flant/kube-client/internal/cbor/cbortest"
 )
 
@@ -47,6 +49,26 @@ func TestInitSwitchesToCBORWhenTheAPIServerSupportsIt(t *testing.T) {
 	// Other clients of the process must stay as they are.
 	assert.False(t, features.FeatureGates().Enabled(features.ClientsAllowCBOR))
 	assert.False(t, features.FeatureGates().Enabled(features.ClientsPreferCBOR))
+}
+
+func TestInitAsksAgainWhenTheAPIServerWasUnavailable(t *testing.T) {
+	t.Cleanup(internalcbor.SetRetryIntervals(time.Nanosecond, time.Nanosecond))
+
+	srv := cbortest.NewServer(t)
+	srv.SetCBOR(true)
+	srv.SetUnavailable(true)
+
+	c := initClient(t, srv)
+	widgets := c.Dynamic().Resource(cbortest.Widgets).Namespace("default")
+
+	srv.SetUnavailable(false)
+
+	assert.Eventually(t, func() bool {
+		_, err := widgets.List(context.Background(), metav1.ListOptions{})
+		last := srv.LastRequest()
+
+		return err == nil && last.Path == cbortest.WidgetsPath && last.Response == runtime.ContentTypeCBOR
+	}, 5*time.Second, 10*time.Millisecond, "the dynamic client must switch to CBOR")
 }
 
 func TestInitKeepsJSONWhenTheAPIServerHasNoCBOR(t *testing.T) {

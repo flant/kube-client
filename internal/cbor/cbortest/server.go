@@ -26,11 +26,10 @@ import (
 var Widgets = schema.GroupVersionResource{Group: "example.com", Version: "v1", Resource: "widgets"}
 
 const (
-	WidgetsPath = "/apis/example.com/v1/namespaces/default/widgets"
+	WidgetsPath           = "/apis/example.com/v1/namespaces/default/widgets"
+	SelfSubjectReviewPath = "/apis/authentication.k8s.io/v1/selfsubjectreviews"
 	// BadRequestName is the name of an object the server rejects with 400.
 	BadRequestName = "bad-request"
-
-	selfSubjectReviewPath = "/apis/authentication.k8s.io/v1/selfsubjectreviews"
 )
 
 // Request is a request the server received.
@@ -51,6 +50,7 @@ type Server struct {
 	*httptest.Server
 
 	mu          sync.Mutex
+	unavailable bool
 	cbor        bool
 	smallBodies bool
 	widgets     int
@@ -66,6 +66,15 @@ func NewServer(t testing.TB) *Server {
 	t.Cleanup(s.Close)
 
 	return s
+}
+
+// SetUnavailable makes the server answer every request with 503 Service
+// Unavailable.
+func (s *Server) SetUnavailable(on bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.unavailable = on
 }
 
 // SetCBOR makes the server send and read CBOR, as the CBORServingAndStorage
@@ -114,9 +123,25 @@ func (s *Server) LastRequest() Request {
 	return s.requests[len(s.requests)-1]
 }
 
+// RequestsTo returns the number of requests received for path.
+func (s *Server) RequestsTo(path string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	n := 0
+
+	for _, req := range s.requests {
+		if req.Path == path {
+			n++
+		}
+	}
+
+	return n
+}
+
 func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
-	cbor, smallBodies, widgets := s.cbor, s.smallBodies, s.widgets
+	unavailable, cbor, smallBodies, widgets := s.unavailable, s.cbor, s.smallBodies, s.widgets
 	s.mu.Unlock()
 
 	req := Request{Method: r.Method, Path: r.URL.Path, Accept: r.Header.Get("Accept")}
@@ -125,9 +150,11 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	mediaType := negotiate(req.Accept, cbor)
 
 	switch {
+	case unavailable:
+		req.Response, req.Status = writeStatus(w, runtime.ContentTypeJSON, http.StatusServiceUnavailable)
 	case mediaType == "":
 		req.Response, req.Status = writeStatus(w, runtime.ContentTypeJSON, http.StatusNotAcceptable)
-	case r.Method == http.MethodPost && (r.URL.Path == selfSubjectReviewPath || r.URL.Path == WidgetsPath):
+	case r.Method == http.MethodPost && (r.URL.Path == SelfSubjectReviewPath || r.URL.Path == WidgetsPath):
 		req.Response, req.Status = create(w, r, mediaType, cbor, smallBodies)
 	case r.Method == http.MethodGet && r.URL.Path == WidgetsPath && r.URL.Query().Get("watch") == "true":
 		req.Response, req.Status = watchWidgets(w, mediaType, widgets)
@@ -298,6 +325,7 @@ func writeStatus(w http.ResponseWriter, mediaType string, code int) (string, int
 		http.StatusNotFound:             metav1.StatusReasonNotFound,
 		http.StatusNotAcceptable:        metav1.StatusReasonNotAcceptable,
 		http.StatusUnsupportedMediaType: metav1.StatusReasonUnsupportedMediaType,
+		http.StatusServiceUnavailable:   metav1.StatusReasonServiceUnavailable,
 	}
 
 	return write(w, mediaType, code, &unstructured.Unstructured{Object: map[string]any{
